@@ -150,4 +150,4 @@ Minecraft's Controls screen and can be changed there.
 
 ---
 
-<p align="center">2026 slinkyFX. All rights reserved.</p>
+<p align="center">This project carries an MIT license.</p>
