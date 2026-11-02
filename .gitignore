@@ -1,0 +1,33 @@
+# Build output
+build/
+dist/
+out/
+SlinkyNative/build/
+
+# Release archives
+*.zip
+
+# Visual Studio and other editors
+.vs/
+*.user
+*.suo
+.idea/
+*.iml
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# slinkyFX generated payloads / staging
+SlinkyNative/payload/*.tmp
+/tmp/slinky-*
+
+# Downloaded toolchain (large, can be re-downloaded)
+tools/llvm/
+tools/ninja/
+tools/llvm-download/
+tools/ninja-download/
