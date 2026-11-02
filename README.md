@@ -10,11 +10,9 @@
 
 ---
 
-slinkyFX is a ghost client made by lallu. It is a from-scratch client-side
-package: a small native loader finds the running game and injects the slinkyFX
-native engine directly into the JVM. There is no mods folder, no launcher
-profile to edit, and no Forge-only requirement - the same loader works with the
-vanilla launcher, Forge, Lunar Client and Badlion Client.
+slinkyFX serves as an accessible, cost-effective alternative to the official slinky ghost client.
+Developed specifically for budget-conscious users, its core mission is to emulate the original software's entire ecosystem.
+The developers have made every effort to match slinky's exact functionality, ensuring that all variables, configurations, and performance traits remain indistinguishable from the premium version.
 
 The loader is deliberately quiet. It scans for a Java process that actually
 has LWJGL loaded, works out which naming scheme the game is running with, and
