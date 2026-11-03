@@ -57,7 +57,7 @@ FN(unsigned char, java_get_c03_packet_player_on_ground, (void *ctx, void *c03_pa
 extern "C" void criticals_on_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     bool ok = false;
-    if (ctx->in_game == 1) {
+    if (ctx->in_game == 1 && ctx->player) {
         int n = criticals_roll_cooldown;
         if (n != 0) {
             unsigned char last = criticals_last_roll;

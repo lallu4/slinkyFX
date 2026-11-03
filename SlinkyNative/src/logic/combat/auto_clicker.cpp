@@ -42,6 +42,8 @@ extern "C" float random_range_bound_0_6_in_auto_clicker, random_range_bound_0_8,
                  random_range_bound_neg_0_05, random_range_bound_0_05, offset_1_in_auto_clicker, half_in_auto_clicker, divisor_20_in_auto_clicker, random_range_bound_0_94, random_range_bound_0_97;
 struct Target { void *padding_00; void *ent; double dist2; };
 struct TickHook { char padding_00[8]; Ctx *ctx; char padding_10[8]; double dt; };
+struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
+extern "C" char auto_clicker_module_descriptor[];
 FN(void *, get_timer, (void *jvm, void *timer));
 FN(float, java_get_timer_timer_speed, (void *jvm, void *timer));
 FN(void, post_synthetic_click, (int button, unsigned char down));
@@ -69,7 +71,7 @@ extern "C" void auto_clicker_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     auto_clicker_attack_key = get_event_key(ctx->jvm, java_get_game_settings_attack_key(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft)));
     auto_clicker_attack_bound_mouse = auto_clicker_attack_key == -99;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         return;
     auto_clicker_rotation_at_last_tick = get_entity_rotation(ctx->jvm, ctx->player);
     if (ptr_to_no_hit_delay_module_descriptor[0x14])
@@ -87,10 +89,12 @@ extern "C" void auto_clicker_on_player_update(Hook *hook) {
 
 // extra "burst" clicks: returns true (and pushes *delay out) while a burst is running
 extern "C" unsigned char auto_clicker_extra_burst_clicks(float *delay, float base) {
+    if (auto_clicker_burst_setting != 1) {
+        auto_clicker_burst_clicks_left = 0;     // turning it off mid-burst must end the burst, not just stop starting one
+        return 0;
+    }
     int n = auto_clicker_burst_clicks_left;
     if (n <= 0) {
-        if (auto_clicker_burst_setting != 1)
-            return 0;
         double bd = base;
         Range r = {(float)(offset_0_02 + bd), (float)(bd + offset_0_04)};
 
@@ -144,7 +148,7 @@ extern "C" void auto_clicker_on_frame(TickHook *hook) {
     unsigned char edge = (held & 2) >> 1;
     double reset = hundredth;
     for (;;) {
-        if (ctx->in_game == 0)
+        if (ctx->in_game == 0 || !ctx->player)
             goto gui;
         if (!((held | edge) & 1))
             goto stop;
@@ -221,7 +225,7 @@ gui:
         unsigned char lmb = key_state_table[1];
         double v;
         if (lmb == 1 && auto_clicker_lmb_was_down_gui == 1) {
-            if (auto_clicker_allow_inventory != 1 || (!(key_state_table[0x62] & 1) && !(key_state_table[0x63] & 1)))
+            if (auto_clicker_allow_inventory != 1 || !ctx->player || (!(key_state_table[0x62] & 1) && !(key_state_table[0x63] & 1)))
                 goto plain;
             void *jvm = ctx->jvm;
             void *scr = get_current_screen(jvm, ctx->minecraft);
@@ -251,4 +255,22 @@ plain:
 add:
         auto_clicker_time_until_next_click_edge = v + auto_clicker_time_until_next_click_edge;
     }
+}
+
+// Toggled off with a synthetic press still outstanding, the module never posted its release: the game kept
+// attacking on its own and the button read as held for every require-mouse-pressed gate. Bit 1 of the state
+// byte is the synthetic-press marker; the posted release clears both marker and held bits when the window
+// procedure runs, so the table itself is left alone here.
+extern "C" void auto_clicker_on_toggle(EvHook *hook) {
+    if (hook->ev != auto_clicker_module_descriptor || hook->on)
+        return;
+    Ctx *ctx = hook->ctx;
+    if (ctx->key_state_table && (((unsigned char *)ctx->key_state_table)[auto_clicker_attack_bound_mouse + 1] & 2))
+        post_synthetic_click(auto_clicker_attack_bound_mouse ^ 1, 0);
+    auto_clicker_time_until_next_click_edge = 0.0;
+    auto_clicker_last_edge_delay = 0.0;
+    auto_clicker_burst_clicks_left = 0;
+    auto_clicker_double_click_pending = 0;
+    auto_clicker_lmb_was_down_gui = 0;
+    auto_clicker_last_inventory_slot_clicked = -1;
 }

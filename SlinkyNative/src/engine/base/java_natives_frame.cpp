@@ -199,7 +199,12 @@ extern "C" void hook_update_display(JNIEnv *env) {
     void *player = get_local_player(&jvm, minecraft);
     void *world = get_world(&jvm, minecraft);
     void *timer = get_timer(&jvm, minecraft);
-    if (!minecraft || !player || !world || !timer) return;   // not fully loaded yet (e.g. main menu); skip this frame
+    if (!minecraft || !player || !world || !timer) {
+        // Not fully loaded yet (e.g. the main menu). The game's own Display.update() sites are rewritten into
+        // this native, so the pump still has to happen here or the window stops swapping and the game hangs.
+        tick_netty(&jvm);
+        return;
+    }
     HCtx ctx;
     ctx.jvm = &jvm; ctx.module_manager = java_natives_world_module_manager; ctx.profile_list = init_profile_list; ctx.minecraft = minecraft; ctx.world = world; ctx.player = player;
     ctx.key_state_table = java_natives_world_key_state_table_one_byte; ctx.target = java_natives_frame_module_manager_target_state;

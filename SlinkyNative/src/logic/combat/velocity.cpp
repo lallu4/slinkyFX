@@ -80,8 +80,19 @@ FN(void *, java_jni_is_instance_of_s08_packet_player_pos_look, (void *ctx, void 
 FN(Vec3, java_get_entity_motion_x, (void *jvm, void *entity));
 
 extern "C" void velocity_disable(EvHook *hook) {
-    if (hook->ev == velocity_module_descriptor)
-        velocity_tick_motion_saved = 0;
+    if (hook->ev != velocity_module_descriptor || hook->on)
+        return;
+    velocity_tick_motion_saved = 0;
+    velocity_delay_ticks = 0;
+    __atomic_exchange_n(&velocity_strong_knockback, (unsigned char)0, __ATOMIC_SEQ_CST);
+    // Mode 1 presses the jump key and undoes that press on the next update. Disabling unregisters that
+    // update, so the press has to be released here or KeyBinding.pressed stays set (endless hopping).
+    if (velocity_jump_key_pressed_by_us == 1) {
+        Ctx *ctx = hook->ctx;
+        void *key = get_held_item(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft));
+        java_set_key_binding_pressed(ctx->jvm, key, java_get_key_binding_key_code(ctx->jvm, key));
+        velocity_jump_key_pressed_by_us = 0;
+    }
 }
 
 extern "C" void velocity_attack(PhaseHook *hook) {
@@ -106,7 +117,7 @@ extern "C" void velocity_mode_3_delayed(Hook *hook) {
     if (velocity_mode != 3)
         return;
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         return;
     if (__builtin_expect(__atomic_load_n(&velocity_own_velocity_packet_seen, __ATOMIC_SEQ_CST) & 1, 1)) {
         __atomic_exchange_n(&velocity_own_velocity_packet_seen, (unsigned char)0, __ATOMIC_SEQ_CST);
@@ -222,21 +233,23 @@ static inline __attribute__((always_inline)) bool roll(float ch) {
 // front, mode 1 = jump reset
 extern "C" void velocity_tick_mode_0(Hook *hook) {
     velocity_reduced_this_combo = 0;
+    Ctx *ctx = hook->ctx;
+    // The pending jump-key release is restored before the mode checks: changing the mode away from "jump"
+    // used to skip the branch below and leave the key pressed forever.
+    if (velocity_jump_key_pressed_by_us == 1) {
+        void *held_item = get_held_item(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft));
+        void *jvm = ctx->jvm;
+        java_set_key_binding_pressed(jvm, held_item, java_get_key_binding_key_code(jvm, held_item));
+        velocity_jump_key_pressed_by_us = 0;
+        return;
+    }
     if (velocity_mode == 2)
         return;
-    Ctx *ctx = hook->ctx;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         return;
     __atomic_exchange_n(&velocity_own_entity_id, java_get_entity_entity_id(ctx->jvm, ctx->player), __ATOMIC_SEQ_CST);
     unsigned mode = velocity_mode;
     if (mode == 1) {
-        if (velocity_jump_key_pressed_by_us == 1) {
-            void *held_item = get_held_item(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft));
-            void *jvm = ctx->jvm;
-            java_set_key_binding_pressed(jvm, held_item, java_get_key_binding_key_code(jvm, held_item));
-            velocity_jump_key_pressed_by_us = 0;
-            return;
-        }
         if (!velocity_shared_conditions(ctx) || !roll(velocity_jump_chance_value))
             return;
         if (velocity_require_sprinting_jump_value == 1 && !java_call_entity_is_sprinting(ctx->jvm, ctx->player))

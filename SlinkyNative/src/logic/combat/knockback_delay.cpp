@@ -97,8 +97,16 @@ reset:
 
 extern "C" void knockback_delay_on_late_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
-    if (!ctx->player)
+    if (!ctx->player) {
+        // Publish "not allowed" instead of returning silently: the packet hook runs on the network thread
+        // and would otherwise keep a stale latch + own_entity_id from the last session, which can hold the
+        // incoming packets of the next login until the budget times out.
+        knockback_delay_holding = 0;
+        AXCHG(knockback_delay_air, (unsigned char)0);
+        AXCHG(knockback_delay_allowed, (unsigned char)0);
+        AXCHG(knockback_delay_max_delay_second, (unsigned short)(int)knockback_delay_max_delay);
         return;
+    }
     AXCHG(knockback_delay_own_entity_id, java_get_entity_entity_id(ctx->jvm, ctx->player));
     unsigned char air;
     if (knockback_delay_require_air_value == 1)

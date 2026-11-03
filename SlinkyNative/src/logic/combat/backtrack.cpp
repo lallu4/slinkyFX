@@ -7,7 +7,9 @@ struct Rot { float yaw, pitch; };
 struct Target { void *padding_00; void *ent; double dist2; };
 struct RenderHook { char padding_00[8]; Vec3 cam; char padding_20[8]; float partial; };
 struct PktHook { char padding_00[8]; void *ctx; void *ev; long long budget; int seq; int verdict; };
+struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 
+extern "C" char backtrack_module_descriptor[];           // Backtrack module descriptor
 extern "C" int backtrack_last_released_sequence;              // last released sequence
 extern "C" int backtrack_last_held_sequence;              // last held sequence
 extern "C" unsigned char backtrack_spin_lock;    // spin lock
@@ -158,7 +160,7 @@ extern "C" void backtrack_tick_decide_whether(Hook *hook) {
         if (n != 1)
             return;
     }
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         goto reset;
     if (backtrack_require_mouse_pressed_value == 1 && !vertex_pointer_current(ctx))
         goto reset;
@@ -234,6 +236,17 @@ reset:
         backtrack_cooldown_ticks = (int)backtrack_cooldown;
         backtrack_active = 0;
     }
+    backtrack_spin_lock = 0;
+    backtrack_render_box = 0;
+}
+
+extern "C" void backtrack_on_toggle(EvHook *hook) {
+    if (hook->ev != backtrack_module_descriptor || hook->on)
+        return;
+    // Disabling mid-window left `active` set: the next enable then skips the init block above and keeps
+    // replaying the previous window's accumulated offset and held server position.
+    lock();
+    backtrack_active = 0;
     backtrack_spin_lock = 0;
     backtrack_render_box = 0;
 }

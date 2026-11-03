@@ -28,7 +28,7 @@ FN(void, release_owner, (void *timer));
 extern "C" void auto_weapon_on_inventory_tick(WState *s) {
     Ctx *ctx = s->ctx;
     void *moving_object_position, *y, *inventory_player;
-    if (UNLIKELY(ctx->in_game != 1)) goto reset;
+    if (UNLIKELY(ctx->in_game != 1 || !ctx->player)) goto reset;
     if (UNLIKELY(java_call_entity_player_is_using_item(ctx->jvm, ctx->player))) goto reset;
     if (UNLIKELY(auto_weapon_require_mouse_pressed_value == 1 && !vertex_pointer_current(ctx))) goto reset;
     moving_object_position = java_get_minecraft_object_mouse_over(ctx->jvm, ctx->minecraft);

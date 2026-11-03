@@ -31,6 +31,8 @@ extern "C" void reach_on_reach_query(ReachState *s) {
         reach_cooldown_ticks = c;
     }
     Ctx *ctx = s->ctx;
+    if (!ctx->player)
+        return;
     if (reach_require_sprint == 1) {
         if (!java_call_entity_is_sprinting(ctx->jvm, ctx->player))
             return;

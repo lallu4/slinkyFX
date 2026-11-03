@@ -45,19 +45,32 @@ FN(unsigned char, walk_should_change, (void *state, void *rng, double p));
 FN(float, random_rotation, (void *rng));
 extern "C" void sprint_reset_press_key(Ctx *ctx, unsigned char on);
 
+// time the last reset actually started; spaces the taps (see the detection note below)
+static double sprint_reset_time_last_reset;
+// previous hurt_time, so a hit in a vanilla client (maxHurtTime 20) is still seen as an edge
+static int sprint_reset_last_hurt_time;
+
 extern "C" void sprint_reset_on_player_update(Hook *hook) {
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game == 1) {
+    if (ctx->in_game == 1 && ctx->player) {
         double now = time_now();
-        if (!(now - sprint_reset_time_last_own_hit < threshold_0_5_in_sprint_reset)) {
-            if (java_get_entity_ticks_existed(ctx->jvm, ctx->player) == java_get_entity_living_base_last_attacker_time(ctx->jvm, ctx->player)) {
-                sprint_reset_time_last_own_hit = now;
-                sprint_reset_hit_seen = 1;
-            }
+        // The own-hit edge (ticksExisted == lastAttackerTime) is true for exactly one tick. It used to be
+        // sampled only outside a 0.5 s window whose start advanced on accepted hits, so every hit that
+        // landed inside the window was dropped outright - at trade rates the reset then fired on roughly
+        // every other hit, in all three modes. Record the edge unconditionally and let the same 0.5 s
+        // space the *resets* instead: a hit seen while the window is open stays pending (hit_seen).
+        if (java_get_entity_ticks_existed(ctx->jvm, ctx->player) == java_get_entity_living_base_last_attacker_time(ctx->jvm, ctx->player)) {
+            sprint_reset_time_last_own_hit = now;
+            sprint_reset_hit_seen = 1;
         }
-        sprint_reset_ticks_since_hurt += 1;
-        if (java_get_entity_living_base_hurt_time(ctx->jvm, ctx->player) == 10)
+        int hurt = java_get_entity_living_base_hurt_time(ctx->jvm, ctx->player);
+        // hurt_time is loaded with maxHurtTime on the damage tick: 10 while No Hit Delay holds it there,
+        // 20 in a vanilla client. The old "== 10" test meant wait_for_damage never saw a hit without
+        // that module, so also treat any rise in hurt_time as a fresh hit.
+        if (hurt == 10 || hurt > sprint_reset_last_hurt_time)
             sprint_reset_ticks_since_hurt = 0;
+        sprint_reset_last_hurt_time = hurt;
+        sprint_reset_ticks_since_hurt += 1;
         float t = sprint_reset_countdown;
         if (t > 0.0f) {
             t += minus_one_in_sprint_reset;
@@ -78,7 +91,6 @@ extern "C" void sprint_reset_on_player_update(Hook *hook) {
         if (sprint_reset_stage == 1) {
             sprint_reset_press_key(ctx, 1);
             sprint_reset_stage = 2;
-            sprint_reset_hit_seen = 0;
             float d = sprint_reset_duration_value;
             if (sprint_reset_randomize_value == 1) {
                 float x = walk_update(sprint_reset_random_walk_1, rot_make_floats(0.0f, random_range_bound_1_in_sprint_reset), walk_period_30_in_sprint_reset);
@@ -94,10 +106,16 @@ extern "C" void sprint_reset_on_player_update(Hook *hook) {
         if (sprint_reset_randomize_value == 1)
             dl += walk_update(sprint_reset_rng_states, rot_make_floats(0.0f, random_range_bound_2_in_sprint_reset), walk_period_5_in_sprint_reset);
         if (sprint_reset_hit_seen == 1) {
+            if (now - sprint_reset_time_last_reset < threshold_0_5_in_sprint_reset)
+                return;
             if (sprint_reset_wait_for_damage_value == 1 && sprint_reset_ticks_since_hurt != 0)
                 return;
             if (sprint_reset_require_weapon_value == 1 && !is_holding_accepted_weapon(ctx->jvm, ctx->player))
                 return;
+            // consumed here, not when the tap starts: a hit that lands during this reset stays pending
+            // and fires the next one instead of being discarded
+            sprint_reset_hit_seen = 0;
+            sprint_reset_time_last_reset = now;
             sprint_reset_countdown = dl + sprint_reset_countdown;
             sprint_reset_stage = 1;
         }
@@ -107,6 +125,9 @@ extern "C" void sprint_reset_on_player_update(Hook *hook) {
         sprint_reset_press_key(ctx, 0);
     sprint_reset_stage = 0;
     sprint_reset_hit_seen = 0;
+    sprint_reset_ticks_since_hurt = 0;
+    sprint_reset_last_hurt_time = 0;
+    sprint_reset_time_last_reset = 0.0;
     *(int *)&sprint_reset_countdown = 0;
 }
 
@@ -121,6 +142,15 @@ extern "C" void sprint_reset_press_key(Ctx *c, unsigned char on) {
         key = java_get_game_settings_forward_key(c->jvm, obj);
     if (sprint_reset_mode == 2)
         java_call_entity_set_sprinting(c->jvm, c->player, (on ^ 1) != 0);
-    unsigned char key_binding_key_code = on ? (sprint_reset_mode == 1) : java_get_key_binding_key_code(c->jvm, key);
+    // W-tap and sprint-tap hold their key down, so the end of a reset restores it (the key code doubles
+    // as "true"). Sneak is the opposite: the reset *presses* it, so its end has to release it - passing
+    // the key code there left the sneak key pressed and the player stuck crouching.
+    unsigned char key_binding_key_code;
+    if (sprint_reset_mode == 1)
+        key_binding_key_code = on;
+    else if (on)
+        key_binding_key_code = 0;
+    else
+        key_binding_key_code = java_get_key_binding_key_code(c->jvm, key);
     java_set_key_binding_pressed(c->jvm, key, key_binding_key_code);
 }

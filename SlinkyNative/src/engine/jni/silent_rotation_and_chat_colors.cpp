@@ -43,13 +43,27 @@ extern "C" bool set_vertex_pointer(void *jvm, void *object, Vec3 *p, Vec3 *q) {
 }
 
 struct Ctx3 { void *jvm; char padding_08[0x10]; void *minecraft; char padding_20[0x10]; char *key_state_table; };
+FN(double, time_now, ());
+static double input_press_time[0x100];      // last down-edge (time_now()) per client key code
+static const double input_press_latch = 0.05;
+
+// A hardware / AHK / mouse-macro click goes down and up inside one frame, so both window messages are
+// already consumed before the next poll and key_state_table reads 0 on every tick. Remember the edge so
+// gates that mean "the player is attacking" still see it. Recorded by on_input_event (java_natives_world).
+extern "C" void note_input_press(int code) {
+    if ((unsigned)code < 0x100) input_press_time[code] = time_now();
+}
+extern "C" unsigned char input_down_or_recent(char *keys, int code) {
+    if (keys[code]) return 1;
+    return time_now() - input_press_time[code] < input_press_latch;
+}
 extern "C" bool vertex_pointer_current(Ctx3 *c) {
     void *game_settings = get_game_settings(c->jvm, c->minecraft);
     game_settings = java_get_game_settings_attack_key(c->jvm, game_settings);
     int event_key = get_event_key(c->jvm, game_settings);
     bool f = event_key == -0x63;
 
-    return c->key_state_table[f + 1] != 0;
+    return input_down_or_recent(c->key_state_table, f + 1);
 }
 
 // ---- rotation state (silent aim / mouse emulation)

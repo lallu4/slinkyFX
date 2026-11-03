@@ -380,6 +380,7 @@ extern "C" void *java_natives_world_key_state_table_one_byte, *java_natives_fram
 extern "C" char java_natives_world_module_manager[];                        // module manager
 extern "C" char *ptr_to_gui_module_descriptor, *ptr_to_friends_module_descriptor;          // settings blocks (+0x14: flag)
 FN(unsigned char, gui_handle_input_event_entry, (InEvt *e, unsigned char unchanged, void *mgr));
+FN(void, note_input_press, (int code));                     // engine/jni/silent_rotation_and_chat_colors.cpp
 FN(void *, get_minecraft, (Jvm *j));
 FN(void, friends_friends_friend_list, (Jvm *jvm, void *mgr));
 FN(bool, key_map_dispatch, (void *map, int id, int arg));
@@ -394,6 +395,7 @@ extern "C" bool on_input_event(InEvt *e) {
         if (!(e->synthetic == 1 && was == down)) {
             if (e->synthetic == 1) down = (down | (cur & 2)) ^ 2;
             keys[code] = down;
+            if (down & 1) note_input_press((int)code);
             unchanged = was == e->down;
         }
     }

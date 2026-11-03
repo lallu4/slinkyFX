@@ -304,7 +304,7 @@ extern "C" void aim_assist_apply_frame_rotation(Rot d, float dt) {
 
 extern "C" void aim_assist_frame(FrameEvt *h) {
     Ctx *ctx = h->ctx;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         return;
     if (!aim_assist_has_target) {
         if (aim_assist_aiming != 1)
@@ -357,7 +357,7 @@ extern "C" void aim_assist_tick(Hook *hook) {
     double range;
     unsigned char far;
     struct { float fov, hp; int hurt; unsigned tie; } s;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         goto clear;
     if (aim_assist_require_sprint == 1 && aim_assist_mode != 3 && !java_call_entity_is_sprinting(ctx->jvm, ctx->player))
         goto lost;

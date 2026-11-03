@@ -78,6 +78,8 @@ extern "C" void lag_range_attack_hook(PhaseHook *hook) {
     if (hook->phase != 1)
         return;
     Ctx *ctx = hook->ctx;
+    if (!ctx->player)
+        return;
     int entity_ticks_existed = java_get_entity_ticks_existed(ctx->jvm, ctx->player);
     lag_range_hit_time_unchanged = entity_ticks_existed == java_get_entity_living_base_last_attacker_time(ctx->jvm, ctx->player);
 }
@@ -156,7 +158,7 @@ extern "C" void lag_range_tick_decide_whether(Hook *hook) {
     unsigned char hit_equal = lag_range_hit_time_unchanged;
     lag_range_hit_time_unchanged = 0;
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         goto off;
     if (lag_range_require_weapon_value == 1 && !is_holding_accepted_weapon(ctx->jvm, ctx->player))
         goto off;

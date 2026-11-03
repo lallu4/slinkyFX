@@ -87,6 +87,10 @@ static inline __attribute__((always_inline)) float neg(float x) {
     return x;
 }
 
+// Owned by us only while "block while charging" holds the key down: the held slot can change during a
+// timer freeze, so the release is keyed on this instead of on re-testing the item.
+static unsigned char timer_range_use_key_forced;
+
 extern "C" void timer_range_on_packet_sent(PktHook *hook) {
     if (__atomic_load_n(&timer_range_holding_packets, __ATOMIC_SEQ_CST) & 1)
         hook->verdict = 1;
@@ -98,6 +102,12 @@ extern "C" void timer_range_on_timer_phase(EvHook *hook) {
         void *timer = get_timer(ctx->jvm, ctx->minecraft);
         void *jvm = ctx->jvm;
         java_set_timer_timer_speed(jvm, timer, timer_speed_1_in_timer_range_a);
+        // The freeze-expiry release in the frame handler is only reached while the timer is still modified,
+        // so a disable mid-freeze has to undo our own use-key press here.
+        if (timer_range_use_key_forced == 1) {
+            java_set_key_binding_pressed(jvm, java_get_game_settings_use_item_key(jvm, get_game_settings(jvm, ctx->minecraft)), 0);
+            timer_range_use_key_forced = 0;
+        }
         timer_range_timer_modified = 0;
         timer_range_delay_ticks = 0;
         __atomic_exchange_n(&timer_range_holding_packets, (unsigned char)0, __ATOMIC_SEQ_CST);
@@ -108,6 +118,10 @@ extern "C" void timer_range_on_timer_phase(EvHook *hook) {
 }
 
 extern "C" void timer_range_hypot(Ctx *c) {
+    // The tick handler can re-freeze the timer while the delay counter is still running, and that branch has
+    // no in-game test -- after a disconnect item_held_hotbar_slot() would read a field off a null entity.
+    if (!c->player)
+        return;
     void *timer = get_timer(c->jvm, c->minecraft);
     void *jvm = c->jvm;
     java_set_timer_timer_speed(jvm, timer, 0.0f);
@@ -120,6 +134,7 @@ extern "C" void timer_range_hypot(Ctx *c) {
             void *k = java_get_game_settings_use_item_key(c->jvm, get_game_settings(c->jvm, c->minecraft));
             java_set_key_binding_pressed(c->jvm, k, 1);
             java_increment_key_binding_press_time(c->jvm, k);
+            timer_range_use_key_forced = 1;
             return;
         }
     }
@@ -143,7 +158,7 @@ extern "C" void timer_range_tick(Hook *hook) {
         return;
     }
     timer_range_burst_would_reach_target = 0;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         return;
     Target *target = (Target *)ctx->target;
     if (!target->ent || threshold_3 > target->dist2)
@@ -185,20 +200,20 @@ extern "C" void timer_range_render_tick(FrameEvt *h) {
         java_set_timer_timer_speed(ctx->jvm, get_timer(ctx->jvm, ctx->minecraft), timer_speed_1_in_timer_range);
         timer_range_timer_modified = 0;
         __atomic_exchange_n(&timer_range_holding_packets, (unsigned char)0, __ATOMIC_SEQ_CST);
-        int mode = timer_range_mode;
-        if (mode != 1 && timer_range_block_while_charging == 1) {
-            if (item_sword(ctx->jvm, item_held_hotbar_slot(ctx->jvm, ctx->player)))
-                java_set_key_binding_pressed(ctx->jvm, java_get_game_settings_use_item_key(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft)), 0);
-            mode = timer_range_mode;
+        // Released on ownership rather than on what is held now: switching hotbar slots during the freeze used
+        // to leave the use key pressed for good, and item_held_hotbar_slot() read a null player on logout.
+        if (timer_range_use_key_forced == 1) {
+            java_set_key_binding_pressed(ctx->jvm, java_get_game_settings_use_item_key(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft)), 0);
+            timer_range_use_key_forced = 0;
         }
-        if (mode == 1)
+        if (timer_range_mode == 1)
             java_set_timer_elapsed_partial_ticks(ctx->jvm, timer, (float)timer_range_delay_ticks);
     }
     if (timer_range_cooldown > 0.0) {
         timer_range_cooldown -= h->dt;
         return;
     }
-    if (timer_range_burst_would_reach_target != 1 || ctx->in_game != 1)
+    if (timer_range_burst_would_reach_target != 1 || ctx->in_game != 1 || !ctx->player)
         return;
     Target *target = (Target *)ctx->target;
     if (!target->ent)

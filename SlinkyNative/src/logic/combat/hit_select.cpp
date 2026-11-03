@@ -60,15 +60,15 @@ extern "C" void hit_select_on_tick(Hook *hook) {
     hit_select_decided_this_tick = 0;
     Ctx *ctx = hook->ctx;
     int n = 0;
-    if (ctx->in_game == 1 && java_get_entity_living_base_hurt_time(ctx->jvm, ctx->player) == 0)
+    if (ctx->in_game == 1 && ctx->player && java_get_entity_living_base_hurt_time(ctx->jvm, ctx->player) == 0)
         n = hit_select_calm_ticks + 1;
     hit_select_calm_ticks = n;
 }
 
 extern "C" void hit_select_on_attack(AttackHook *hook) {
-    if (hook->phase != 1)
-        return;
     Ctx *ctx = hook->ctx;
+    if (hook->phase != 1 || !ctx->player)
+        return;
     if (hit_select_decided_this_tick == 1) {
         if (!hit_select_cancel)
             return;
@@ -187,6 +187,6 @@ extern "C" void hit_select_on_player_update(Hook *hook) {
         hit_select_last_target_id = entity_entity_id;
         hit_select_ticks_since_target_was_hit = 1001;
     }
-    if (java_get_entity_ticks_existed(ctx->jvm, ctx->player) == java_get_entity_living_base_last_attacker_time(ctx->jvm, ctx->player))
+    if (ctx->player && java_get_entity_ticks_existed(ctx->jvm, ctx->player) == java_get_entity_living_base_last_attacker_time(ctx->jvm, ctx->player))
         hit_select_ticks_since_target_was_hit = 0;
 }

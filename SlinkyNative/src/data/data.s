@@ -2171,7 +2171,9 @@ auto_clicker_module_descriptor:
 .quad auto_clicker_tick
 .zero 8
 .quad auto_clicker_on_frame
-.zero 248
+.zero 56
+.quad auto_clicker_on_toggle
+.zero 184
 .quad auto_clicker_on_player_update
 .zero 152
 .quad auto_clicker_gui
@@ -3767,7 +3769,9 @@ backtrack_module_descriptor:
 .quad str_uses_lag_to_make_players_easie
 .zero 88
 .quad backtrack_packet_hook_under
-.zero 56
+.zero 40
+.quad backtrack_on_toggle
+.zero 8
 .quad backtrack_render_box_held
 .zero 184
 .quad backtrack_tick_decide_whether
@@ -6372,7 +6376,9 @@ knockback_displace_module_descriptor:
 .quad str_allows_dealing_knockback_at_a
 .zero 104
 .quad knockback_displace_on_packet_sent
-.zero 152
+.zero 24
+.quad knockback_displace_on_toggle
+.zero 120
 .quad knockback_displace_on_rotation_update
 .byte 0x18,0xfc,0xff,0xff,0x00,0x00,0x00,0x00
 .quad knockback_displace_on_attack

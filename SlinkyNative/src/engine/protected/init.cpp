@@ -34,6 +34,7 @@ extern "C" unsigned char java_natives_frame_client_shutting_down_natives_check; 
 extern "C" VmTable **init_javavm;           // JavaVM*
 extern "C" JIds *java_natives_world_cached_jni_ids;               // cached JNI IDs
 extern "C" char java_natives_world_module_manager[];              // module manager (0x310 bytes, in place)
+extern "C" char *ptr_to_gui_module_descriptor;                    // GUI module block; its +0x14 is the "window open" flag
 extern "C" unsigned char *java_natives_world_key_state_table_one_byte;      // key state table, one byte per client key code
 extern "C" KeyMap *java_natives_frame_profile_key_binds_key_profile;             // profile key binds: key -> profile name
 extern "C" KeyMap *java_natives_frame_module_key_binds_key_module;             // module key binds: key -> module
@@ -232,9 +233,12 @@ static int setup(JNIEnv *env) {
     // Modules with flags bit 1 (Notifications, Auto Rod, Block In, Weapons) have no toggle and are
     // never read from the settings file; they are on for the whole session. queue_module_toggle only queues the
     // enable, apply_module_toggles applies it on the first frame.
+    // The GUI module carries the same bit, but its +0x14 byte is read everywhere as "the ClickGUI window
+    // is open", so forcing it on throws the menu open on the first frame. It opens on its key bind instead,
+    // and the Notifications module (also flagged, still forced on) prints the "Press ... to open GUI" hint.
     Mods *mods = (Mods *)java_natives_world_module_manager;
     for (unsigned long long i = 0; i < mods->count; i++)
-        if ((mods->data[i]->flags & 0x2) && mods->data[i]->enabled != 1)
+        if ((mods->data[i]->flags & 0x2) && (void *)mods->data[i] != (void *)ptr_to_gui_module_descriptor && mods->data[i]->enabled != 1)
             queue_module_toggle(java_natives_world_module_manager, mods->data[i], 1);
     input_input_handler_hooked_into_game = on_input_event;                                             // window hook (installed by the frame code, hook_game_window)
 

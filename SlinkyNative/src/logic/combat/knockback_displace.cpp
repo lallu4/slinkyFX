@@ -12,7 +12,10 @@ typedef float v4f __attribute__((vector_size(16), aligned(16)));
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
 struct Rot { float yaw, pitch; };
 struct AttackHook { char padding_00[8]; Ctx *ctx; unsigned char phase; unsigned char handled; };   // +0x10 / +0x11
+struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 struct PktHook { char padding_00[0x24]; int verdict; };
+
+extern "C" char knockback_displace_module_descriptor[];     // Knockback Displace module descriptor
 
 extern "C" float knockback_displace_cooldown_value;            // "cooldown"
 extern "C" float knockback_displace_angle;            // "angle"
@@ -87,6 +90,10 @@ extern "C" void knockback_displace_on_attack(AttackHook *hook) {
     if (hook->phase != 1)
         return;
     Ctx *ctx = hook->ctx;
+    // is_held_item_accepted_weapon (= weapons_check_held_item_cached) reads ticksExisted straight off the
+    // player, so every accessor below needs a live entity.
+    if (!ctx->player)
+        return;
     void *minecraft = java_get_minecraft_object_mouse_over(ctx->jvm, ctx->minecraft);
     if (!minecraft || java_get_moving_object_position_type_ordinal(ctx->jvm, minecraft) != 2)
         return;
@@ -146,7 +153,7 @@ extern "C" void knockback_displace_on_late_tick(Hook *hook) {
     knockback_displace_displaced_last_tick = knockback_displace_displacing_this_tick;
     knockback_displace_hit_seen_this_tick = 0;
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game == 1) {
+    if (ctx->in_game == 1 && ctx->player) {
         float s = java_get_entity_living_base_move_strafing(ctx->jvm, ctx->player);
         int sgn = (s > 0.0f) - (0.0f > s);
     asm("" : "+r"(sgn));
@@ -177,6 +184,25 @@ publish:
 }
 
 FN(void, java_increment_key_binding_press_time, (void *a, void *k));
+extern "C" void knockback_displace_on_toggle(EvHook *hook) {
+    if (hook->ev != knockback_displace_module_descriptor || hook->on)
+        return;
+    // rotation_hidden makes the packet hook hold every outgoing packet and the late tick is what clears it
+    // again, so both flags have to be dropped here: re-enabling the module would otherwise start by
+    // swallowing the player's movement packets until the next late tick happens to publish a zero.
+    Ctx *ctx = hook->ctx;
+    if (knockback_displace_displacing_this_tick == 1 && ctx->in_game == 1 && ctx->player) {
+        Rot now = get_entity_rotation(ctx->jvm, ctx->player);
+        Rot d = rot_add(now, get_silent_rotation_offset());
+        apply_silent_rotation(rot_sub(knockback_displace_rotation_before_displacement, d));
+        set_rotation_active(ctx->jvm, ctx->player, 0);
+    }
+    knockback_displace_displacing_this_tick = 0;
+    knockback_displace_displaced_last_tick = 0;
+    knockback_displace_hit_seen_this_tick = 0;
+    __atomic_exchange_n(&knockback_displace_rotation_hidden, (unsigned char)0, __ATOMIC_SEQ_CST);
+}
+
 extern "C" int knockback_displace_direction() {
     int result;
     switch (knockback_displace_direction_value) {

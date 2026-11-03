@@ -49,6 +49,7 @@ FN(void, java_increment_key_binding_press_time, (void *jvm, void *key_binding));
 FN(int, java_get_entity_ticks_existed, (void *jvm, void *entity));
 FN(int, java_get_entity_living_base_last_attacker_time, (void *jvm, void *entity_living_base));
 FN(int, java_get_entity_entity_id, (void *jvm, void *entity));
+FN(unsigned char, input_down_or_recent, (char *keys, int code));   // engine/jni/silent_rotation_and_chat_colors.cpp
 
 #define AXCHG(x, v) __atomic_exchange_n(&(x), (v), __ATOMIC_SEQ_CST)
 #define ALOAD(x) __atomic_load_n(&(x), __ATOMIC_SEQ_CST)
@@ -72,7 +73,9 @@ extern "C" void auto_block_on_tick(Hook *hook) {
     }
     if (auto_block_re_block_cooldown != 0)
         auto_block_re_block_cooldown -= 1;
-    if (!ctx->in_game) {
+    // ctx->player can still be null while inGameHasFocus is set (respawn / world transition) and every
+    // accessor below reads a field straight off it, so take the same release-and-stop-lag path.
+    if (!ctx->in_game || !ctx->player) {
         if (auto_block_use_key_forced == 1) {
             void *k = use_key(ctx);
             java_set_key_binding_pressed(ctx->jvm, k, java_get_key_binding_key_code(ctx->jvm, k));
@@ -92,7 +95,9 @@ extern "C" void auto_block_on_tick(Hook *hook) {
                 goto publish;
             goto release;
         }
-        if (auto_block_require_left_mouse_pressed_value == 1 && !((Mouse *)ctx->key_state_table)->lmb)
+        // A hardware / AHK / mouse-macro click is released inside one frame, so a plain poll of the key
+        // table would read 0 on every tick and auto-block would never engage outside the built-in clicker.
+        if (auto_block_require_left_mouse_pressed_value == 1 && !input_down_or_recent((char *)ctx->key_state_table, 1))
             goto release;
         if (timer_range_is_delay_pending())
             goto release;
@@ -208,7 +213,11 @@ extern "C" void auto_block_on_packet_sent(PktHook *hook) {
 }
 
 extern "C" void auto_block_on_toggle(EvHook *hook) {
-    if (hook->ev == auto_block_module_descriptor && !hook->on && (auto_block_blocking & 1)) {
+    if (hook->ev != auto_block_module_descriptor || hook->on)
+        return;
+    // The hold path leaves use_key_forced set while blocking is already cleared (auto_block.cpp `hold:`),
+    // so keying the cleanup on `blocking` alone could hand a disabled module an owned use key.
+    if (auto_block_use_key_forced == 1 || (auto_block_blocking & 1)) {
         if (auto_block_use_key_forced == 1) {
             Ctx *ctx = hook->ctx;
             void *k = use_key(ctx);
@@ -216,15 +225,15 @@ extern "C" void auto_block_on_toggle(EvHook *hook) {
             auto_block_use_key_forced = 0;
         }
         auto_block_blocking = 0;
-        AXCHG(auto_block_lag_ticks_left, 0);
+        auto_block_ticks_held = 0;
     }
-
+    AXCHG(auto_block_lag_ticks_left, 0);
 }
 
 extern "C" void auto_block_on_attack(AttackHook *hook) {
     if (hook->phase == 0) {
-        void *jvm = hook->ctx->jvm;
-        if (!item_sword(jvm, item_held_hotbar_slot(jvm, hook->ctx->player)))
+        Ctx *ctx = hook->ctx;
+        if (ctx->player && !item_sword(ctx->jvm, item_held_hotbar_slot(ctx->jvm, ctx->player)))
             AXCHG(auto_block_lag_ticks_left, 0);
         JOIN();
         if (auto_block_right_mouse_required == 1 && !(auto_block_blocking & 1))
