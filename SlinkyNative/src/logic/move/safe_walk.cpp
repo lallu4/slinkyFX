@@ -9,6 +9,9 @@ extern "C" unsigned char safe_walk_safe_walk_active;   // safe-walk active
 
 struct V3 { double x, y, z; };
 struct WalkState { char padding_00[8]; Ctx *ctx; };
+struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
+
+extern "C" char safe_walk_module_descriptor[];
 
 FN(unsigned long long, get_entity_rotation, (void *jvm, void *entity));   // packed rotation (pitch in high half)
 FN(float, java_get_entity_living_base_move_forward, (void *jvm, void *entity_living_base));
@@ -20,6 +23,12 @@ FN(void, java_set_entity_motion_x, (void *jvm, void *entity, V3 value));
 
 extern "C" void safe_walk_on_tick(WalkState *s) {
     Ctx *ctx = s->ctx;
+    // the mouse-over dispatch site leaves ctx->player NULL once the world is unloaded, even while the
+    // window still has focus, and every accessor below reads the entity
+    if (!ctx->player)
+        goto clear;
+    // in_game is 0 with a screen open, but vanilla still moves the player then - keep the last verdict
+    // rather than dropping edge protection mid-inventory
     if (ctx->in_game != 1)
         goto out;
     if (safe_walk_require_looking_down_value == 1) {
@@ -58,4 +67,14 @@ out:
 
 
     SHARED_EPILOG();
+}
+
+extern "C" void safe_walk_on_toggle(EvHook *hook) {
+    if (hook->on || hook->ev != safe_walk_module_descriptor)
+        return;
+    // safe_walk_active is what hook_should_clip_ledge (the isSneaking hook) trusts, and the only code
+    // that clears it is this module's own tick - unregistered the moment it is switched off. Left at
+    // 1, re-enabling reports the player as sneaking (sneak hitbox + slow walk) for the ticks before
+    // the first tick recomputes it, with no sneak key held.
+    safe_walk_safe_walk_active = 0;
 }

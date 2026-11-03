@@ -7,6 +7,9 @@
 #define H1(c) __builtin_expect(!!(c), 1)
 #define H2(c) (c)
 
+struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
+
+extern "C" char sprint_module_descriptor[];
 extern "C" unsigned char sprint_while_in_gui_value;   // "while_in_gui"
 extern "C" unsigned char sprint_while_using_item_value;   // "while_using_item"
 extern "C" unsigned char sprint_while_backwards_value;   // "while_backwards"
@@ -20,6 +23,7 @@ FN(void *, get_current_screen, (void *jvm, void *object));
 FN(void *, get_game_settings, (void *jvm, void *object));
 FN(void *, java_get_game_settings_key_17_or_8, (void *jvm, void *game_settings));
 FN(void, java_set_key_binding_pressed, (void *jvm, void *key_binding, unsigned char on));
+FN(unsigned char, java_get_key_binding_key_code, (void *jvm, void *key_binding));
 FN(unsigned char, java_call_entity_is_sprinting, (void *jvm, void *entity));
 FN(void, java_call_entity_set_sprinting, (void *jvm, void *entity, bool on));
 FN(unsigned char, java_call_entity_player_is_using_item, (void *jvm, void *entity_player));
@@ -39,6 +43,24 @@ extern "C" void sprint_on_player_update(SprintState *s) {
             java_call_entity_set_sprinting(ctx->jvm, ctx->player, true);
     }
     sprint_sprint_currently_forced = allowed;
+}
+
+extern "C" void sprint_on_toggle(EvHook *hook) {
+    if (hook->ev != sprint_module_descriptor)
+        return;
+    Ctx *ctx = hook->ctx;
+    if (hook->on) {
+        sprint_sprint_currently_forced = 0;
+        return;
+    }
+    // This handler rewrites the sprint binding every tick and unregisters on disable, so the key it
+    // held down stays "pressed" and you keep auto-sprinting until you tap the sprint key for real.
+    void *obj = get_game_settings(ctx->jvm, ctx->minecraft);
+    void *key = java_get_game_settings_key_17_or_8(ctx->jvm, obj);
+    java_set_key_binding_pressed(ctx->jvm, key, java_get_key_binding_key_code(ctx->jvm, key));
+    if (sprint_sprint_currently_forced == 1 && ctx->player)
+        java_call_entity_set_sprinting(ctx->jvm, ctx->player, false);
+    sprint_sprint_currently_forced = 0;
 }
 
 extern "C" void sprint_on_movement_input(MoveState *s) {

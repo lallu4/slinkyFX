@@ -7,7 +7,9 @@
 
 struct Vec3 { double x, y, z; };
 struct PhaseHook { char padding_00[8]; Ctx *ctx; unsigned char phase; };   // +0x10: phase flag
+struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 
+extern "C" char keep_sprint_module_descriptor[];
 extern "C" float keep_sprint_chance_value;           // "chance"
 extern "C" float keep_sprint_motion_mult;           // "motion_mult"
 extern "C" unsigned char keep_sprint_require_on_ground_value;   // "require_on_ground"
@@ -29,7 +31,9 @@ extern "C" void keep_sprint_on_attack(PhaseHook *hook) {
     if (hook->phase == 1) {
         Ctx *ctx = hook->ctx;
         unsigned char ok = 0;
-        if (ctx->in_game == 1 && java_call_entity_is_sprinting(ctx->jvm, ctx->player) && random_chance(keep_sprint_chance_value)) {
+        // the click hook dispatches attack events without checking the player, and is_sprinting /
+        // reading motion off a NULL jobject faults
+        if (ctx->in_game == 1 && ctx->player && java_call_entity_is_sprinting(ctx->jvm, ctx->player) && random_chance(keep_sprint_chance_value)) {
             keep_sprint_saved_motion = java_get_entity_motion_x(ctx->jvm, ctx->player);
             ok = 1;
         }
@@ -68,4 +72,15 @@ extern "C" void keep_sprint_on_player_update(Hook *hook) {
         }
     }
     EPILOG_NOP();
+}
+
+extern "C" void keep_sprint_on_toggle(EvHook *hook) {
+    if (hook->on || hook->ev != keep_sprint_module_descriptor)
+        return;
+    // Toggling off between the attack pair and the following world update used to leave the pending
+    // re-apply set: the next time the module was switched on, its first tick forced sprint on for no
+    // reason, and the stale roll could carry a saved motion across the gap.
+    keep_sprint_motion_pending_re_apply = 0;
+    keep_sprint_roll_succeeded = 0;
+    keep_sprint_saved_motion = { 0.0, 0.0, 0.0 };
 }

@@ -43,7 +43,7 @@ FN(void *, java_get_container_player_craft_matrix, (void *jvm, void *container_p
 FN(void *, java_call_iinventory_get_stack_in_slot, (void *jvm, void *inv, int slot));
 FN(void *, java_new_c_init, (void *jvm, int x));
 FN(void, java_call_entity_set_sprinting, (void *jvm, void *entity, bool on));
-FN(unsigned char, release_global_refs, (void *jvm, void *object));
+FN(unsigned char, release_global_refs, (void *jvm));
 FN(void *, java_jni_is_instance_of_c16_packet_client_status, (void *jvm, void *screen));
 FN(int, java_get_c16_packet_client_status_status, (void *jvm, void *c16_packet_client_status));
 FN(void *, java_jni_is_instance_of_c0_epacket_click_window, (void *jvm, void *screen));
@@ -58,7 +58,22 @@ extern "C" void inv_walk_on_toggle(EvHook *hook) {
     if (hook->on || hook->ev != inv_walk_module_descriptor)
         return;
     Ctx *ctx = hook->ctx;
-    release_global_refs(ctx->jvm, ctx->minecraft);
+    // The tick handler holds these keys down (or forces them up) synthetically and unregisters on
+    // disable, so without this a key the module was still "pressing" stays that way until the user
+    // taps it for real, and phase/keys_released would make the next enable skip its own resync.
+    void *obj = get_game_settings(ctx->jvm, ctx->minecraft);
+    void *keys[6] = { java_get_game_settings_back_key(ctx->jvm, obj),
+                      java_get_game_settings_left_key(ctx->jvm, obj),
+                      java_get_game_settings_right_key(ctx->jvm, obj),
+                      java_get_game_settings_forward_key(ctx->jvm, obj),
+                      get_held_item(ctx->jvm, obj),
+                      java_get_game_settings_key_17_or_8(ctx->jvm, obj) };
+    for (int i = 0; i < 6; i++)
+        java_set_key_binding_pressed(ctx->jvm, keys[i], java_get_key_binding_key_code(ctx->jvm, keys[i]));
+    inv_walk_keys_released_last_tick = 0;
+    inv_walk_phase = 0;
+    inv_walk_replaying_queued_clicks = 0;
+    release_global_refs(ctx->jvm);
 }
 
 extern "C" void inv_walk_on_gui_screen(GuiHook *hook) {
@@ -118,7 +133,7 @@ extern "C" void inv_walk_on_inventory_tick(Hook *hook) {
     if (__builtin_expect(inv_walk_replaying_queued_clicks, 0))
         goto end;
     Ctx *ctx = hook->ctx;
-    if (!release_global_refs(ctx->jvm, ctx->minecraft))
+    if (!release_global_refs(ctx->jvm))
         goto end;
     inv_walk_tick_last_screen_activity = inv_walk_tick_counter;
     if (ctx->in_game != 1)
@@ -193,11 +208,14 @@ extern "C" void inv_walk_tick_keep_movement(Hook *hook) {
             goto recompute;
         }
         {
-            void *inv = java_get_entity_player_inventory(ctx->jvm, ctx->player);
+            // the world-update dispatch site does not check the player, and reading the inventory off
+            // a NULL jobject faults; with no player there is nothing to inspect, so only queued
+            // clicks can hold the keys
+            void *inv = ctx->player ? java_get_entity_player_inventory(ctx->jvm, ctx->player) : 0;
             void *cont = java_get_net_handler_play_client_net_manager(ctx->jvm, java_call_minecraft_get_net_handler(ctx->jvm, ctx->minecraft));
             busy = 1;
-            if (!java_get_inventory_player_item_stack(ctx->jvm, inv)) {
-                if (inv_walk_phase == 1) {
+            if (!inv || !java_get_inventory_player_item_stack(ctx->jvm, inv)) {
+                if (inv_walk_phase == 1 || !ctx->player) {
                     busy = queued;
                 } else {
                     void *grid = java_get_container_player_craft_matrix(ctx->jvm, java_get_entity_player_inventory_container(ctx->jvm, ctx->player));
@@ -248,7 +266,8 @@ physical:
     release = 0;
 done:
     if (queued) {
-        java_call_entity_set_sprinting(ctx->jvm, ctx->player, false);
+        if (ctx->player)
+            java_call_entity_set_sprinting(ctx->jvm, ctx->player, false);
         void *a = ctx->jvm;
         java_set_key_binding_pressed(a, java_get_game_settings_key_17_or_8(a, obj), 0);
     }

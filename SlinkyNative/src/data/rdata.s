@@ -12216,7 +12216,7 @@ ptr_to_aim_assist_module_descriptor:
 .quad hitboxes_module_descriptor
 .quad hit_select_module_descriptor
 .quad indicators_module_descriptor
-.quad fast_accel_require_not_damaged_setting_field_0x8
+.quad instant_stop_module_descriptor
 .quad inv_manager_module_descriptor
 .quad inv_walk_module_descriptor
 .quad item_esp_module_descriptor
@@ -12234,7 +12234,7 @@ ptr_to_aim_assist_module_descriptor:
 .quad no_slow_module_descriptor
 .quad notifications_module_descriptor
 .quad no_use_delay_module_descriptor
-.quad debug_clicks_setting_field_0x8
+.quad null_move_module_descriptor
 .quad piercing_module_descriptor
 .quad no_hit_delay_mode_setting_field_0x40
 .quad player_esp_module_descriptor
