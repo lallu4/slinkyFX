@@ -12,6 +12,10 @@ FN(void, java_set_entity_player_sp_prev_time_in_portal, (void *jvm, void *entity
 
 extern "C" void anti_debuff_on_late_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
+    // event 0x12 (updateEntities) dispatches without checking the player, and a NULL jobject passed to a
+    // JNI field access faults
+    if (!ctx->player)
+        return;
     if (anti_debuff_blindness_value == 1) {
         void *effect = java_call_entity_living_base_get_active_potion_effect(ctx->jvm, ctx->player, java_potion_potion_types(ctx->jvm, 15));
         if (effect)

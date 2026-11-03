@@ -158,6 +158,7 @@ extern "C" void mod_overlay_tick(Hook *hook) {
         Module *module = entry->mod;
         if (mod_overlay_lowercase & 1) {
             unsigned long long n = libc_strlen(module->name);
+            if (n > 0x13) n = 0x13;           // text is 0x14 bytes including the terminator
             for (unsigned long long j = 0; j < n; j++)
                 entry->text[j] = lower(module->name[j]);
             entry->text[n] = 0;

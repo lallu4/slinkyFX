@@ -40,6 +40,7 @@ extern "C" KeyMap *java_natives_frame_profile_key_binds_key_profile;            
 extern "C" KeyMap *java_natives_frame_module_key_binds_key_module;             // module key binds: key -> module
 extern "C" void *init_profile_list;               // profile list
 extern "C" HClass init_slinkychannelhandler_class_constructor;              // SlinkyChannelHandler class + constructor
+extern "C" unsigned char classfile_hooks_1_while_hooks_are_installed;        // the Java hooks are armed (jni/hook_installer.cpp)
 extern "C" bool (*input_input_handler_hooked_into_game)(void *event);   // input handler hooked into the game window (protected/input.cpp)
 extern "C" const char str_slinky_in_profiles[], str_settings[], str_name[], str_profile_binds[], str_bind[];   // ".slinky", "settings", "name", "profile_binds", "bind"
 
@@ -152,7 +153,7 @@ static int hooks_set(JNIEnv *env, bool enable) {
     if (enable && !err) g_jvmti = jvmti;
     return err;
 }
-// set_java_hooks(env, enable): called by the unload sequence (base/e_7.cpp, hook_update_display) with enable = 0.
+// set_java_hooks(env, enable): enable = 0 comes from slinky_disarm, the unload step of the engine thread.
 // Returns the error so the unload can be aborted while every global is still valid: if the Java
 // hooks cannot be removed, tearing the client down and unloading the DLL while the game keeps
 // calling into it is a guaranteed use-after-free (see the serialize_settings crash on unload).
@@ -247,21 +248,43 @@ static int setup(JNIEnv *env) {
     return hooks_set(env, true);
 }
 
-// Entry of the start-up thread. Returns 0 or the error that stopped it (reported; the caller then unloads).
+// Entry of the engine thread (platform/win/entry.cpp). Returns 0 or the error that stopped it (reported; the
+// caller then unloads). The thread stays ATTACHED to the JVM when the start-up succeeds and later runs
+// slinky_disarm on itself: the JVMTI environment that install_class_hooks fetches belongs to the thread that
+// fetched it, and a thread that detaches (or exits) takes its environments - the capabilities, the event
+// callbacks and the enabled ClassFileLoadHook with them - down with it. Detaching here instead would leave the
+// cached g_jvmti unusable, so no unload could ever take the hooks out again.
 extern "C" int slinky_setup(void *self) {
     init_our_module_handle = self;
     int err = get_java_vm((void **)&init_javavm);
-    if (!err) {
-        bool attached;
-        JNIEnv *env = attach(&attached);
-        err = env ? setup(env) : ERR_NO_ENV;
-        detach(attached);
-    }
+    if (err) return err;
+    bool attached;
+    JNIEnv *env = attach(&attached);
+    if (!env) return ERR_NO_ENV;
+    err = setup(env);
+    if (err) detach(attached);   // nothing is armed, so this thread may leave the JVM before the DLL goes
     if (err) slinky_logf("Initialization failed: %u", err);
     return err;
 }
 
-// ---- shutdown: everything slinky_setup built, once the hooks are gone (runs on the unload thread) ----
+// Take the Java hooks out again; only valid on the engine thread (see slinky_setup).
+// 0 = the game no longer calls into us, either because nothing was armed or because the disarm worked.
+extern "C" int slinky_disarm(void) {
+    if (!classfile_hooks_1_while_hooks_are_installed) return 0;
+    bool attached;
+    JNIEnv *env = attach(&attached);
+    if (!env) return ERR_NO_ENV;
+    int err = set_java_hooks(env, 0);
+    if (!err) g_jvmti = 0;
+    return err;
+}
+
+// the engine thread leaves the JVM as the last step before it exits
+extern "C" void slinky_detach(void) {
+    if (init_javavm && *init_javavm) (*init_javavm)->DetachCurrentThread(init_javavm);
+}
+
+// ---- shutdown: everything slinky_setup built, once the hooks are gone (runs on the engine thread) ----
 extern "C" void slinky_teardown(void) {
     // from here the packet tap and every Java native are inert: they check java_natives_frame_client_shutting_down_natives_check first, and the
     // frees below must not race one (this covers the start-up failure path too, where hook_update_display never ran)

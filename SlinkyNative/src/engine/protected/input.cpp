@@ -191,15 +191,3 @@ extern "C" void post_synthetic_click(bool left, bool down) {
     UINT msg = 0x8cf4 + (left ? 0 : 2) - (down ? 1 : 0);   // 0x8cf3 L down, 0x8cf4 L up, 0x8cf5 R down, 0x8cf6 R up
     pfn_PostMessage(input_hooked_window ? input_hooked_window : GetForegroundWindow(), msg, 0, 0);
 }
-
-// ---- unload: a thread waits a second (so the hooks have returned) then frees the DLL ----
-extern "C" DWORD unload_thread(LPVOID module) {
-    slinky_logf("unload thread: waiting for the hooks to be out");
-    Sleep(1000);
-    slinky_logf("unload thread: teardown");
-    slinky_teardown();   // release what start-up built (init.cpp), then the DLL itself
-    slinky_logf("unload thread: FreeLibrary");
-    FreeLibraryAndExitThread((HMODULE)module, 0);
-    return 0;
-}
-extern "C" void start_unload_thread(HMODULE self) { CloseHandle(CreateThread(0, 0, unload_thread, self, 0, 0)); }

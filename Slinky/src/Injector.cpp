@@ -70,12 +70,12 @@ bool Injector::ExtractBundledDll(std::wstring& outDllPath, std::wstring& outLogP
 }
 
 bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
+    // A running client is taken out by its own Unload button, never from here: it owns a JVMTI environment,
+    // a subclassed window procedure and Java classes that only its engine thread can release, so a remote
+    // FreeLibrary would unmap code the game is still calling into.
     if (ProcessUtil::IsModuleLoaded(pid, L"slinky-native.dll")) {
-        if (!ProcessUtil::UnloadModule(pid, L"slinky-native.dll")) {
-            ConsoleUI::PrintFailure("Could not unload previous instance.");
-            return false;
-        }
-        Sleep(300);
+        ConsoleUI::PrintFailure("Slinky is already running. Unload it from the menu, then inject again.");
+        return false;
     }
 
     HANDLE hProcess = OpenProcess(

@@ -2,6 +2,7 @@ LIBRARY kernel32.dll
 EXPORTS
 CloseHandle
 CreateDirectoryW
+CreateEventW
 CreateFileW
 CreateThread
 DeleteFileW
@@ -24,6 +25,8 @@ QueryPerformanceCounter
 QueryPerformanceFrequency
 MultiByteToWideChar
 ReadFile
+SetEvent
 Sleep
 WideCharToMultiByte
+WaitForSingleObject
 WriteFile

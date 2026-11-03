@@ -53,8 +53,24 @@ extern "C" void java_set_minecraft(Jvm *jvm, void *minecraft, void *value) {
     JCALL(jvm, SetObjectField, minecraft, ids->Minecraft_objectMouseOver, value);
 }
 
+// The ClickGUI hands the cursor over to itself by clearing Minecraft.inGameHasFocus, which is the flag
+// vanilla gates its mouse-look on (see logic/visual/gui.cpp). The flag means "the game loop owns the mouse"
+// to vanilla but "a world is loaded" to the modules, so while the menu is up they keep reading the value the
+// flag had before it opened and nothing else in the engine changes behaviour.
+extern "C" {
+unsigned char gui_owns_cursor;         // the ClickGUI has the cursor and the focus flag is ours to hold
+unsigned char gui_focus_before_open;   // the value it had when the menu opened
+}
+
 extern "C" bool is_in_game(Jvm *jvm, void *minecraft) {
+    if (gui_owns_cursor) return gui_focus_before_open != 0;
+    if (!minecraft) return false;
     return JCALLN(jvm, GetBooleanField, minecraft, ids->Minecraft_inGameHasFocus) != 0;
+}
+
+extern "C" void java_set_minecraft_in_game_focus(Jvm *jvm, void *minecraft, int value) {
+    if (!minecraft) return;
+    JCALL(jvm, SetBooleanField, minecraft, ids->Minecraft_inGameHasFocus, (jboolean)(value != 0));
 }
 
 extern "C" jint java_get_minecraft_left_click_counter(Jvm *jvm, void *minecraft) {
@@ -199,21 +215,21 @@ extern "C" jobject java_call_minecraft_add_scheduled_task(Jvm *jvm, void *minecr
 
 // ---- JVMTI: switch the class hooks off again (undo of the install) ----
 // Disables the ClassFileLoadHook event, retransforms the 9 hooked classes so the game gets its original bytecode
-// back, gives the capabilities up and drops the global ref of the transformer class. Errors are JVMTI error + 12000.
+// back, drops the transformer's callbacks, natives and capabilities and finally its global ref. Errors are JVMTI error + 12000.
 struct JvmtiTable { void *fn[160]; };
 typedef int (*JvmtiSetEventMode)(JvmtiTable **, int mode, int event, void *thread, ...);
 typedef int (*JvmtiRetransform)(JvmtiTable **, int count, jclass *classes);
+typedef int (*JvmtiSetCallbacks)(JvmtiTable **, const void *callbacks, int size);
 typedef int (*JvmtiRelinquish)(JvmtiTable **, const void *caps);
 #define JVMTI(env, idx, T) ((T)(*(env))->fn[idx])
 extern "C" unsigned char classfile_hooks_1_while_hooks_are_installed;       // 1 while the hooks are installed
 extern "C" jobject classfile_hooks_global_ref_transformer_class;              // global ref of the transformer class
 extern "C" const char ptr_to_hook_installer_class_file_slinkyhooks13[];        // JVMTI capabilities that were added
-#define JVMTI_CHECK(call)                       \
-    do {                                        \
-        if (call) {                             \
-            err = (call) + 0x2ee0;              \
-            if (err) goto out;                  \
-        }                                       \
+// One call per step: the previous form evaluated `call` twice, so every check retransformed the classes again.
+#define JVMTI_CHECK(call)                        \
+    do {                                         \
+        int e_ = (call);                         \
+        if (e_) { err = e_ + 0x2ee0; goto out; } \
     } while (0)
 extern "C" int remove_class_hooks(JNIEnv *env, JvmtiTable **jvmti) {
     int err = 0;
@@ -237,10 +253,20 @@ extern "C" int remove_class_hooks(JNIEnv *env, JvmtiTable **jvmti) {
         JVMTI_CHECK(JVMTI(jvmti, 151, JvmtiRetransform)(jvmti, 9, classes));
     }
     g_disarming = 0;
-    if (JVMTI(jvmti, 142, JvmtiRelinquish)(jvmti, ptr_to_hook_installer_class_file_slinkyhooks13))
-        err = JVMTI(jvmti, 142, JvmtiRelinquish)(jvmti, ptr_to_hook_installer_class_file_slinkyhooks13) + 0x2ee0;
-    else
-        err = 0;
+    // Nothing of ours may stay reachable from the JVM once the DLL is gone: the transformer's callbacks are
+    // a copy the VM holds, and its native entry points are function pointers into this module.
+    {
+        char no_callbacks[0x138] = {};
+        int cb = JVMTI(jvmti, 121, JvmtiSetCallbacks)(jvmti, no_callbacks, sizeof no_callbacks);
+        if (cb) { err = cb + 0x2ee0; goto out; }
+    }
+    if (env && classfile_hooks_global_ref_transformer_class &&
+        (*env)->UnregisterNatives(env, classfile_hooks_global_ref_transformer_class) != 0)
+        (*env)->ExceptionClear(env);
+    {
+        int rel = JVMTI(jvmti, 142, JvmtiRelinquish)(jvmti, ptr_to_hook_installer_class_file_slinkyhooks13);
+        if (rel) err = rel + 0x2ee0;
+    }
 out:
     g_disarming = 0;
     if (classfile_hooks_global_ref_transformer_class) {

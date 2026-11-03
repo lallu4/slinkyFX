@@ -85,6 +85,21 @@ static void gui_init() {
     frame_render_target = w;
 }
 
+// ---- undo gui_init (unload; like gui_init it needs the render thread's current OpenGL context) ----
+// The framebuffer and everything NanoVG uploaded into the context can only be released while that context is
+// current, so this runs on the frame thread, before the engine thread frees the state and the module.
+extern "C" void nvgDeleteGL3(void *ctx);
+FN(void, nvg_wrap_delete_framebuffer, (void *fb));
+FN(void, libc_free, (void *ptr));
+extern "C" void gui_render_target_destroy() {
+    GuiWindow *w = frame_render_target;
+    if (!w) return;
+    frame_render_target = 0;
+    if (w->fb) nvg_wrap_delete_framebuffer(w->fb);
+    if (w->ig) nvgDeleteGL3(w->ig);
+    libc_free(w);
+}
+
 // ---- native hook of EntityRenderer.getMouseOver(partialTicks) ----
 extern "C" void hook_get_mouse_over(JNIEnv *env, jclass, void *renderer, float partial_ticks) {
     if (java_natives_frame_client_shutting_down_natives_check) return;

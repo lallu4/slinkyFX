@@ -41,6 +41,10 @@ struct WIN32_FIND_DATAW {
 #define ERROR_ALREADY_EXISTS 0xb7u
 #define GWLP_WNDPROC (-4)
 #define SW_SHOWNORMAL 1
+#define WAIT_OBJECT_0 0u
+#define WAIT_TIMEOUT 0x102u
+#define WAIT_FAILED 0xffffffffu
+#define INFINITE 0xffffffffu
 
 extern "C" {
 __declspec(dllimport) BOOL WINAPI QueryPerformanceCounter(long long *count);
@@ -68,6 +72,9 @@ __declspec(dllimport) DWORD WINAPI GetWindowThreadProcessId(HWND hwnd, DWORD *pi
 __declspec(dllimport) DWORD WINAPI GetCurrentProcessId();
 __declspec(dllimport) HANDLE WINAPI CreateThread(void *security, size_t stack, THREAD_START start, LPVOID param,
                                                  DWORD flags, DWORD *id);
+__declspec(dllimport) HANDLE WINAPI CreateEventW(void *security, BOOL manual_reset, BOOL initial_state, const wchar_t *name);
+__declspec(dllimport) BOOL WINAPI SetEvent(HANDLE e);
+__declspec(dllimport) DWORD WINAPI WaitForSingleObject(HANDLE h, DWORD ms);
 __declspec(dllimport) void WINAPI Sleep(DWORD ms);
 __declspec(dllimport) void WINAPI FreeLibraryAndExitThread(HMODULE m, DWORD code);
 __declspec(dllimport) int WINAPI WideCharToMultiByte(UINT codepage, DWORD flags, const wchar_t *src, int n, char *dst,

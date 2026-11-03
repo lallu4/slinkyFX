@@ -47,7 +47,8 @@ FN(void, disable_vertex_array_state, ());
 extern "C" void chest_esp_on_tick(Hook *hook) {
     chest_esp_found_count = 0;
     Ctx *ctx = hook->ctx;
-    if (!ctx->world)
+    // event 0 dispatches without checking the player, and the position read faults on a NULL jobject
+    if (!ctx->world || !ctx->player)
         return;
     Vec3 eye = java_get_entity_pos_x(ctx->jvm, ctx->player);
     void *list = java_get_world_loaded_tile_entity_list(ctx->jvm, ctx->world);

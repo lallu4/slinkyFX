@@ -86,7 +86,9 @@ static inline __attribute__((always_inline)) float neg(float x) {
 extern "C" void pointers_tick(TickEvt *h) {
     Ctx *ctx = h->ctx;
     pointer_count = 0;
-    if (!ctx->world)
+    // event 0x12 dispatches with the world it was called on, and the render player can still be missing while
+    // a fresh world is already installed; a NULL jobject passed to a JNI field read faults
+    if (!ctx->world || !ctx->player)
         return;
     Vec3 position = java_get_entity_pos_x(ctx->jvm, ctx->player);
     Vec3 me_prev = java_get_entity_prev_pos_x(ctx->jvm, ctx->player);

@@ -161,7 +161,9 @@ extern "C" void name_tags_disable(EvHook *hook) {
 extern "C" void name_tags_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     entity_list_for_render(ctx->jvm);
-    if (!ctx->world)
+    // event 0x12 dispatches with the world it was called on, and the render player can still be missing while
+    // a fresh world is already installed; a NULL jobject passed to a JNI field read faults
+    if (!ctx->world || !ctx->player)
         return;
     if (!name_tags_cached_ref) {
         JNIEnv *env = ((Jvm *)ctx->jvm)->env;

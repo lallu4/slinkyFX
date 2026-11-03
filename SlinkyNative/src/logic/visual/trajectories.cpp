@@ -124,6 +124,9 @@ extern "C" void trajectories_tick(Hook *hook) {
     int why = 0;
     static int last_why;
     if (ctx->in_game != 1) { why = 1; goto none; }
+    // event 0x12 dispatches with the world it was called on, and the render player can still be missing while
+    // a fresh world is already installed; a NULL jobject passed to a JNI field read faults
+    if (!ctx->world || !ctx->player) { why = 11; goto none; }
     if (is_silent_rotation_active()) { why = 2; goto none; }
     if (java_get_game_settings_third_person_view(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft))) { why = 3; goto none; }
     {

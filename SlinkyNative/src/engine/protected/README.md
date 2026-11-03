@@ -6,7 +6,8 @@ hidden call, the strings and globals they use, their callers, and emulation trac
 
 * `files.cpp`  timer (`time_now`) and the profile-folder file helpers (`settings_path` .. `write_text_file`)
 * `input.cpp`  GetModuleHandle/GetProcAddress, the game-window input hook (`hook_game_window`, `game_window_proc`,
-  `restore_game_window`), synthetic clicks (`post_synthetic_click`) and the unload thread (`start_unload_thread`, `unload_thread`)
+  `restore_game_window`) and synthetic clicks (`post_synthetic_click`); the unload itself is driven by the engine
+  thread in `src/platform/win/entry.cpp`
 * `cjson.cpp`  cJSON parse_value / print_value / get_object_item (upstream cJSON 1.7.x)
 * `hooks.cpp`  the `getMouseOver` native hook (`hook_get_mouse_over`), plus notes on `set_java_hooks` and the CRT DLL entry
 

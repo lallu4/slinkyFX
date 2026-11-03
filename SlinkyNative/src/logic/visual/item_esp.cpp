@@ -106,7 +106,9 @@ extern "C" void item_esp_tick(TickEvt *h) {
         }
     }
     item_esp_ref_count = 0;
-    if (!ctx->world)
+    // event 0x12 dispatches with the world it was called on, and the render player can still be missing while
+    // a fresh world is already installed; a NULL jobject passed to a JNI field read faults
+    if (!ctx->world || !ctx->player)
         return;
     Vec3 position = java_get_entity_pos_x(ctx->jvm, ctx->player);
     void *list = java_get_world_loaded_entity_list(ctx->jvm, ctx->world);

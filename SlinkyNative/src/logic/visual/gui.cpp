@@ -33,12 +33,35 @@ FN(void, java_call_static_mouse_set_cursor_position, (void *jvm, int x, int y));
 FN(double, time_now, ());                 // high-resolution seconds
 FN(void, set_tab_animation, (void *state, double v));   // stores a double at state + 0x498
 FN(unsigned char, is_in_game, (void *jvm, void *object));
+FN(void, java_set_minecraft_in_game_focus, (void *jvm, void *object, int value));
+FN(void *, get_local_player, (void *jvm, void *object));
 FN(void, close_popup_now, (void *state));
 FN(void, reset_drag_state, (void *state));
 FN(int, save_settings, (void *module_manager, void *profile_list));
 FN(void, dispatch_event, (void *jvm, Notice *n));
 FN(V4, nvg_rgb_f, (float a, float b, float c));
 FN(void, draw_gui_frame, (void *state, void *event, void *other_object, void *y));
+
+extern "C" unsigned char gui_owns_cursor, gui_focus_before_open;
+
+// ---- the camera must not follow the cursor while the menu owns it ----
+// Vanilla turns the camera with Mouse.getDX()/getDY() in its game loop, gated on Minecraft.inGameHasFocus.
+// The menu is not a GuiScreen, so nothing else ever clears that flag, and on clients whose deltas do not
+// come from the window messages this hook swallows (Forge 1.8.9 reads them from its own mouse poll) the
+// view drifts behind the cursor while it is being used inside the menu.
+static void take_cursor(void *jvm, void *minecraft) {
+    gui_focus_before_open = is_in_game(jvm, minecraft) ? 1 : 0;   // read the real flag before the override is armed
+    gui_owns_cursor = 1;
+    java_set_minecraft_in_game_focus(jvm, minecraft, 0);
+}
+
+static void give_cursor_back(void *jvm, void *minecraft) {
+    if (!gui_owns_cursor)
+        return;
+    gui_owns_cursor = 0;
+    // a world can have loaded while the menu was open with no focus to save; that one still ends focused
+    java_set_minecraft_in_game_focus(jvm, minecraft, gui_focus_before_open || get_local_player(jvm, minecraft) != 0);
+}
 
 extern "C" float gui_get_scale() {
     return gui_scale_table[gui_scale_value];
@@ -86,6 +109,7 @@ extern "C" void gui_on_toggle(EvHook *hook) {
     Ctx *ctx = hook->ctx;
     void *jvm = ctx->jvm;
     if (hook->on == 1) {
+        take_cursor(jvm, ctx->minecraft);
         if (java_call_static_mouse_is_grabbed(jvm)) {
             int display_width = java_get_static_display_width(ctx->jvm);
             int hgt = java_get_static_display_height(ctx->jvm);
@@ -95,6 +119,7 @@ extern "C" void gui_on_toggle(EvHook *hook) {
         set_tab_animation(gui_state_block, time_now());
         return;
     }
+    give_cursor_back(jvm, ctx->minecraft);
     if (is_in_game(jvm, ctx->minecraft))
         java_call_static_mouse_set_grabbed(ctx->jvm, 1);
     close_popup_now(gui_state_block);
@@ -127,5 +152,6 @@ extern "C" void gui_on_hud_render(EvHook *hook) {
 }
 
 extern "C" void gui_on_shutdown(Hook *hook) {
+    give_cursor_back(hook->ctx->jvm, hook->ctx->minecraft);   // the client is ours to hand back, menu open or not
     gui_shutting_down = 1;
 }

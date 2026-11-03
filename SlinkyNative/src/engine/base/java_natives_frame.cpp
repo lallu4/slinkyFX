@@ -168,10 +168,15 @@ FN(void, queue_module_toggle, (void *module_manager, void *module, unsigned char
 struct Pair16 { long long a, b; };
 FN(void, unregister_channel_class, (Jvm *jvm, Pair16 *p));
 FN(void, tick_post_frame, (HCtx *ctx, void *state));
-FN(int, set_java_hooks, (JNIEnv *env, int x));
 extern "C" char gui_state_block[];            // GUI state; [0x4cb] = unload requested
 FN(void, restore_game_window, ());
-FN(void, start_unload_thread, (void *x));
+FN(void, gui_render_target_destroy, ());
+FN(void, java_set_minecraft_in_game_focus, (Jvm *jvm, void *minecraft, int value));
+extern "C" unsigned char gui_owns_cursor;   // the ClickGUI holds Minecraft.inGameHasFocus cleared (logic/visual/gui.cpp)
+// the engine thread (platform/win/entry.cpp) owns the JVMTI environment, so the hook removal and the release of
+// the module have to run there; this thread only waits for the result and does what needs its OpenGL context
+FN(int, engine_disarm_hooks, ());
+FN(void, engine_leave_and_free, ());
 typedef void (*GlPushAttrib)(unsigned);
 typedef void (*GlPopAttrib)();
 extern "C" GlPushAttrib *ptr_to_pGlPushAttrib;
@@ -180,7 +185,7 @@ extern "C" const double threshold_0_00833333;
 extern "C" double frame_start_time;
 extern "C" unsigned char frame_prev_module_state, frame_input_flag, frame_repass_needed, frame_spinlock, java_natives_frame_client_shutting_down_natives_check;
 extern "C" int frame_resize_cooldown, render_target_width, render_target_height;
-extern "C" void *java_natives_frame_module_key_binds_key_module, *frame_render_target, *init_our_module_handle;
+extern "C" void *java_natives_frame_module_key_binds_key_module, *frame_render_target;
 extern "C" Pair16 init_slinkychannelhandler_class_constructor;
 struct ModEnt { char padding_00[0x1e8]; void (*on_shutdown)(HEvent *); };
 struct Mgr { ModEnt **data; unsigned long long count; };
@@ -210,6 +215,10 @@ extern "C" void hook_update_display(JNIEnv *env) {
     ctx.key_state_table = java_natives_world_key_state_table_one_byte; ctx.target = java_natives_frame_module_manager_target_state;
     char *cfg = ptr_to_gui_module_descriptor;
     ctx.in_game = cfg[0x14] ? 0 : is_in_game(&jvm, minecraft);
+    // While the menu owns the cursor the camera must not follow it: vanilla turns the view from
+    // Mouse.getDX()/getDY() in its own loop, gated on Minecraft.inGameHasFocus, and a window focus change
+    // puts that flag back on. This frame runs whether or not the game thinks it has focus.
+    if (cfg[0x14] && gui_owns_cursor) java_set_minecraft_in_game_focus(&jvm, minecraft, 0);
     *(int *)&ctx.padding_41[0] = 0;
     ctx.padding_44 = 0;
     if (!ctx.in_game && frame_prev_module_state) {
@@ -282,7 +291,7 @@ extern "C" void hook_update_display(JNIEnv *env) {
     // resident (everything stays allocated) and cancel the unload request instead. The native entries
     // check java_natives_frame_client_shutting_down_natives_check, so a partial removal followed by the real teardown can no longer fault
     // either: everything the game still reaches goes inert the moment this branch commits.
-    int hoff = set_java_hooks(env, 0);
+    int hoff = engine_disarm_hooks();
     slinky_logf("unload: hooks-off=%d", hoff);
     if (hoff) return;
     // unload: save settings, notify and disable every module, tear down
@@ -303,8 +312,9 @@ extern "C" void hook_update_display(JNIEnv *env) {
     apply_module_toggles(&ctx);
     tick_post_frame(&ctx, java_natives_frame_module_manager_target_state);
     restore_game_window();
-    slinky_logf("unload: starting unload thread");
-    start_unload_thread(init_our_module_handle);
+    gui_render_target_destroy();   // the NanoVG context and its framebuffer belong to this thread's OpenGL context
+    slinky_logf("unload: handing the client back on the engine thread");
+    engine_leave_and_free();
 }
 
 // ---- set the key bind of a module: re-register it in the bind map, then tell the modules (event 0x18) ----

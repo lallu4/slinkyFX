@@ -104,7 +104,9 @@ static inline __attribute__((always_inline)) void hurt_tint(Player *p, float par
 extern "C" void player_esp_tick(TickEvt *h) {
     Ctx *ctx = h->ctx;
     player_esp_target_count = 0;
-    if (!ctx->world)
+    // event 0x12 dispatches with the world it was called on, and the render player can still be missing while
+    // a fresh world is already installed; a NULL jobject passed to a JNI field read faults
+    if (!ctx->world || !ctx->player)
         return;
     Vec3 position = java_get_entity_pos_x(ctx->jvm, ctx->player);
     void *list = java_get_world_player_entities(ctx->jvm, ctx->world);

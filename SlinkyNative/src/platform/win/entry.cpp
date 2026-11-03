@@ -1,30 +1,80 @@
 // Windows entry of the client DLL: it is injected into the game process (LoadLibrary), so DllMain only starts the
-// start-up thread (slinky_setup runs JNI and file I/O, which must not happen under the loader lock).
+// engine thread (slinky_setup runs JNI and file I/O, which must not happen under the loader lock).
 #include "slinky/platform.h"
 #include "slinky/win32.h"
 
-extern "C" void start_unload_thread(HMODULE self);   // protected/input.cpp: unload thread (teardown, then FreeLibraryAndExitThread)
+// The engine thread is the only thread that talks to JVMTI, and it lives for as long as the DLL does:
+// slinky_setup runs on it and stays attached (see init.cpp), the unload hands the hook removal back to it,
+// and only after that succeeded does it free the state and the module itself.
+// Requests come from the game's render thread, which owns the OpenGL context the GUI was built with:
+//   engine_disarm_hooks()   -> the engine thread takes the Java hooks out, the answer is its error code
+//   engine_leave_and_free() -> the render thread is done with the frame; the engine thread frees everything
+enum { ERR_NO_ENGINE_THREAD = 0x801, ERR_DISARM_TIMED_OUT = 0x802 };
+
+static HANDLE engine_work;      // render thread -> engine thread: take the hooks out
+static HANDLE engine_done;      // engine thread -> render thread: engine_disarm_answer holds the result
+static HANDLE engine_leave;     // render thread -> engine thread: the client is down to nothing, free the DLL
+static int engine_disarm_answer;
+
+static void free_and_exit(HMODULE self) {
+    slinky_teardown();   // release what start-up built (init.cpp)
+    slinky_detach();     // ... and leave the JVM before this thread takes the module with it
+    FreeLibraryAndExitThread(self, 0);
+}
+
+static DWORD engine_thread(LPVOID self) {
+    engine_work = CreateEventW(nullptr, 0, 0, nullptr);
+    engine_done = CreateEventW(nullptr, 0, 0, nullptr);
+    engine_leave = CreateEventW(nullptr, 0, 0, nullptr);
+
+    int err = slinky_setup(self);
+    if (err) {
+        slinky_logf("FINAL STATUS: FAILED");
+        // A start-up that died after arming the hooks must not free the state under the game: without a
+        // successful disarm the DLL stays resident, inert (every native checks the shutdown flag).
+        int hoff = slinky_disarm();
+        if (hoff) {
+            slinky_logf("startup failed and the hooks stayed armed (%d): staying resident", hoff);
+            return 0;
+        }
+        free_and_exit((HMODULE)self);
+        return 0;
+    }
+    slinky_logf("FINAL STATUS: RUNNING");
+
+    for (;;) {
+        WaitForSingleObject(engine_work, INFINITE);
+        engine_disarm_answer = slinky_disarm();
+        SetEvent(engine_done);
+        if (!engine_disarm_answer) break;
+        slinky_logf("unload: the hooks are still in, everything stays as it is - try again");
+    }
+    WaitForSingleObject(engine_leave, INFINITE);
+    Sleep(1000);   // the frames that entered a native before the hooks went out have to leave first
+    free_and_exit((HMODULE)self);
+    return 0;   // not reached: FreeLibraryAndExitThread ends the thread
+}
+
+extern "C" int engine_disarm_hooks(void) {
+    if (!engine_work || !engine_done) return ERR_NO_ENGINE_THREAD;
+    SetEvent(engine_work);
+    if (WaitForSingleObject(engine_done, 30000) != WAIT_OBJECT_0) return ERR_DISARM_TIMED_OUT;
+    return engine_disarm_answer;
+}
+
+extern "C" void engine_leave_and_free(void) {
+    if (engine_leave) SetEvent(engine_leave);
+}
 
 // The DLL's own handle, so slinky-native.log lands next to the staged DLL and not next to javaw.exe:
 // GetModuleFileNameW(NULL) returns the process executable, and the loader only reads the staging directory.
 static HMODULE slinky_self;
 
-static DWORD start_thread(LPVOID self) {
-    int err = slinky_setup(self);
-    if (err) {
-        slinky_logf("FINAL STATUS: FAILED");
-        start_unload_thread((HMODULE)self);   // failed: report was printed, take the DLL out again
-    } else {
-        slinky_logf("FINAL STATUS: RUNNING");
-    }
-    return 0;
-}
-
 extern "C" BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, void *) {
     if (reason == 1 /* DLL_PROCESS_ATTACH */) {
         slinky_self = (HMODULE)self;
         DisableThreadLibraryCalls(self);
-        CloseHandle(CreateThread(0, 0, start_thread, self, 0, 0));
+        CloseHandle(CreateThread(0, 0, engine_thread, self, 0, 0));
     }
     return 1;
 }

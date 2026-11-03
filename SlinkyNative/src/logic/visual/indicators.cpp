@@ -1,16 +1,22 @@
-// Indicators - off-screen arrows pointing at nearby dropped items.
-//   0x3ea40 disable: release every cached global reference
-//   0x3ef20 tick: collect up to 10 items with their distance labels
-//   0x3ead0 render: rotate an arrow around the crosshair towards each item
+// Indicators - off-screen arrows pointing at incoming projectiles (10 arrow, 12 fireball, 14 pearl).
+//   0x98 disable: release every cached global reference
+//   0x12 tick: collect up to 10 projectiles with their distance labels
+//   0xb8 render: rotate an arrow around the crosshair towards each projectile
 #include "slinky/engine.h"
 #include "slinky/jids.h"
 
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-struct Cached { char padding_00[0x30]; void *ref; };          // 0x38 bytes, array at 0x301ea8
+struct Indicator {                  // 0x38 bytes, array at 0x301eb0
+    double x0, z0, x1, z1;          // current / previous position
+    int kind;                       // 10, 12 or 14
+    void *ref;                      // global ref to the distance label
+    int width;                      // label width in pixels
+    unsigned color;
+};
 
 extern "C" char indicators_module_descriptor[];                // Indicators module descriptor
 extern "C" unsigned long long indicators_cached_count;    // cached count
-extern "C" Cached indicators_player_refs[];
+extern "C" Indicator indicators_secondary_refs[10];
 
 extern "C" void indicators_disable(EvHook *hook) {
     if (hook->on || hook->ev != indicators_module_descriptor)
@@ -19,23 +25,15 @@ extern "C" void indicators_disable(EvHook *hook) {
     if (n) {
         JNIEnv *env = ((Jvm *)hook->ctx->jvm)->env;
         for (unsigned long long i = 0; i < n; i++) {
-            void *ref = indicators_player_refs[i].ref;
+            void *ref = indicators_secondary_refs[i].ref;
             if (!ref)
                 continue;
             (*env)->DeleteGlobalRef(env, ref);
-            n = indicators_cached_count;
         }
     }
     indicators_cached_count = 0;
 }
 
-struct Indicator {                  // 0x38 bytes at 0x301eb0 (same slots as Cached above)
-    double x0, z0, x1, z1;          // previous / current position
-    int kind;                       // 10, 12 or 14
-    void *ref;                      // global ref to the distance label
-    int width;                      // label width in pixels
-    unsigned color;
-};
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
 typedef float v4f __attribute__((vector_size(16), aligned(16)));
 extern "C" const v4i indicators_sign_mask;      // sign mask
@@ -106,7 +104,9 @@ extern "C" void indicators_tick(TickEvt *h) {
                 (*env)->DeleteGlobalRef(env, indicators_secondary_refs[i].ref);
     }
     indicators_cached_count = 0;
-    if (!ctx->world)
+    // event 0x12 dispatches with the world it was called on, and the render player can still be missing while
+    // a fresh world is already installed; a NULL jobject passed to a JNI field read faults
+    if (!ctx->world || !ctx->player)
         return;
     void *font = java_get_render_manager_text_renderer(ctx->jvm, java_get_minecraft_render_manager(ctx->jvm, ctx->minecraft));
     if (!font)
