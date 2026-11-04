@@ -264,6 +264,18 @@ extern "C" void java_call_static_mouse_consume_delta(Jvm *jvm) {
     JCALLN(jvm, CallStaticIntMethod, (jclass)ids->Mouse, (jmethodID)ids->Mouse_getDX);
     JCALLN(jvm, CallStaticIntMethod, (jclass)ids->Mouse, (jmethodID)ids->Mouse_getDY);
 }
+// MouseHelper.grabMouseCursor() = Mouse.setGrabbed(true) plus the helper's own delta reset, and a helper that
+// reads the cursor from somewhere other than LWJGL resets its own source here too. False means the ids are not
+// there (a client with no resolvable MouseHelper), and the caller falls back to grabbing through LWJGL.
+extern "C" bool java_call_mouse_helper_grab_cursor(Jvm *jvm, void *minecraft) {
+    if (!jvm->ids->Minecraft_mouseHelper || !jvm->ids->MouseHelper_grabMouseCursor)
+        return false;
+    jobject helper = JCALLN(jvm, GetObjectField, minecraft, (jfieldID)ids->Minecraft_mouseHelper);
+    if (!helper)
+        return false;
+    JCALL1(jvm, CallVoidMethod, helper, (jmethodID)ids->MouseHelper_grabMouseCursor);
+    return true;
+}
 extern "C" void keyboard_send_key(Jvm *jvm, jobject object, unsigned short c, int k) {
     JCALL1(jvm, CallVoidMethod, object, (jmethodID)ids->GuiScreen_keyTyped, (int)c, k);
 }

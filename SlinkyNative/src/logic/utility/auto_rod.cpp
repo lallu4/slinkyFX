@@ -83,15 +83,29 @@ extern "C" void auto_rod_on_input(InHook *hook) {
     hook->use = 1;
 }
 
+static inline void restore_slot(Ctx *ctx);
+
 extern "C" void auto_rod_on_toggle(EvHook *hook) {
-    if (hook->ev != auto_rod_module_descriptor || hook->on != 1)
+    if (hook->ev != auto_rod_module_descriptor)
         return;
+    auto_rod_rod_swing_seen = 0;
+    auto_rod_input_taken = 0;
+    auto_rod_wait_ticks = 0;
+    auto_rod_step_delay = 0.0f;
     auto_rod_stage = 0;
+    if (hook->on != 1) {
+        Ctx *ctx = hook->ctx;
+        if (ctx->player)
+            restore_slot(ctx);
+        auto_rod_slot_switch_back = -1;
+    }
 }
 
 extern "C" void auto_rod_on_attack(AttackHook *hook) {
     if (__builtin_expect(hook->phase == 0, 1)) {
         Ctx *ctx = hook->ctx;
+        if (!ctx->player)
+            return;
         void *held = item_held_hotbar_slot(ctx->jvm, ctx->player);
         if (held && java_call_static_item_get_id_from_item(ctx->jvm, held) == 0x15a) {
             if (auto_rod_rod_swing_seen)
@@ -198,7 +212,7 @@ extern "C" float auto_rod_randomised_throw_delay();
 extern "C" float auto_rod_randomised_rod_pull();
 extern "C" void auto_rod_on_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         return;
     if (auto_rod_input_taken) {
         restore_slot(ctx);

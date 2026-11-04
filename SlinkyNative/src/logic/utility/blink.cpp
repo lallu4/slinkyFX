@@ -1,8 +1,9 @@
 // Blink - descriptors +0x48 / +0x68 / +0x78 / +0x98 / +0x128.
 // +0x48:  per tick: auto-disable when "max_duration" runs out, or on attack
 //         (own hurt-time rising) if "disable_on_attack".
-// +0x68:  packet hook: decide whether the packet is held (3) or sent (1).
-// +0x78:  force the packet verdict to 1 while blinking.
+// +0x68: inbound hook: protect status/health/sound (3 = send now), hold everything
+//        else (1), except S2_packet_particles, which is also sent now (3).
+// +0x78: force the packet verdict to 1 while blinking.
 // +0x98:  on enable: load the duration, reset the counters, publish "direction".
 // +0x128: disable when the player digs / interacts with a block.
 #include "slinky/engine.h"
@@ -32,7 +33,7 @@ FN(int, java_get_moving_object_position_type_ordinal, (void *jvm, void *moving_o
 
 extern "C" void blink_on_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game != 1)
+    if (ctx->in_game != 1 || !ctx->player)
         return;
     int hurt = java_get_entity_living_base_last_attacker_time(ctx->jvm, ctx->player);
     unsigned char rose = hurt > blink_last_hurt_time;

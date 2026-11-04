@@ -30,7 +30,7 @@ FN(int, java_c07_packet_player_digging_status, (void *ctx, void *object));
 
 extern "C" void debug_on_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game == 1) {
+    if (ctx->in_game == 1 && ctx->player) {
         if (debug_hurt_time_value == 1) {
             int entity_living_base_hurt_time = java_get_entity_living_base_hurt_time(ctx->jvm, ctx->player);
             if (entity_living_base_hurt_time >= 7) {
@@ -94,7 +94,7 @@ extern "C" void debug_on_attack_post(unsigned char *h) {
 
 extern "C" void debug_on_late_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
-    if (ctx->in_game == 1) {
+    if (ctx->in_game == 1 && ctx->player) {
         unsigned n = debug_ticks_window;
         if (debug_clicks_value == 1) {
             if (n <= 9) {

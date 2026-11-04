@@ -174,12 +174,13 @@ FN(void, gui_render_target_destroy, ());
 FN(void, java_set_minecraft_in_game_focus, (Jvm *jvm, void *minecraft, int value));
 FN(void, java_call_static_mouse_consume_delta, (Jvm *jvm));
 extern "C" unsigned char gui_owns_cursor;   // the ClickGUI holds Minecraft.inGameHasFocus cleared (logic/visual/gui.cpp)
-// Mouse.getDX()/getDY() are read-and-clear, and vanilla is their only reader: once per frame, and only while
-// Minecraft.inGameHasFocus is set. Clearing that flag for the menu stops the reading as well, so LWJGL keeps
-// the movement of its last poll - and the grab on the way back out queues a cursor warp that is only
-// measured at the next pump. Vanilla spends the whole of it as one frame of look, so the view jumps to where
-// the cursor was. Empty the accumulator after every pump while the menu holds the cursor, and for the frames
-// just after it lets go.
+// This drain only reaches clients whose deltas do come from LWJGL. Vanilla is the only reader of
+// Mouse.getDX()/getDY() and empties them on every frame it holds the cursor, so clearing the focus flag stops
+// the reading too and leaves the movement of the last poll standing in LWJGL's hands - and the cursor warp
+// that the grab on the way out queues is only measured at the next pump, which vanilla would spend as one
+// frame of look. Empty the accumulator after every pump while the menu holds the cursor, and for the frames
+// just after it lets go. A MouseHelper that samples a device of its own (RawInput does, on a background
+// thread) is beyond anything here, and that path is what the game's own grab resets (logic/visual/gui.cpp).
 static unsigned char frame_menu_held_cursor;
 static unsigned char frame_delta_drain_left;
 // the engine thread (platform/win/entry.cpp) owns the JVMTI environment, so the hook removal and the release of
@@ -321,16 +322,29 @@ extern "C" void hook_update_display(JNIEnv *env) {
     Mgr *mgr = (Mgr *)java_natives_world_module_manager;
     for (unsigned long long i = 0; i < mgr->count; i++)
         if (mgr->data[i]->on_shutdown) mgr->data[i]->on_shutdown(&e3);
+    slinky_logf("unload: shutdown notified");
     for (unsigned long long i = 0; i < mgr->count; i++) queue_module_toggle(java_natives_world_module_manager, mgr->data[i], 0);
+    slinky_logf("unload: toggles queued");
     spin_lock();
+    slinky_logf("unload: lock taken");
     java_natives_frame_client_shutting_down_natives_check = 1;
     Pair16 p = init_slinkychannelhandler_class_constructor;
-    unregister_channel_class(&jvm, &p);
     frame_spinlock = 0;
+    slinky_logf("unload: lock released");
+    // The tap is taken out of the pipeline with a Java call, and netty waits for its own event loop to flush
+    // pending handler callbacks before a pipeline change from a foreign thread completes. That event loop is
+    // inside on_packet, spinning on frame_spinlock, so holding the lock across this call deadlocks both threads
+    // and the game stops painting. The shutdown flag above already makes on_packet inert, so no lock is needed.
+    unregister_channel_class(&jvm, &p);
+    slinky_logf("unload: packet tap removed");
     apply_module_toggles(&ctx);
+    slinky_logf("unload: toggles applied");
     tick_post_frame(&ctx, java_natives_frame_module_manager_target_state);
+    slinky_logf("unload: post frame ticked");
     restore_game_window();
+    slinky_logf("unload: window restored");
     gui_render_target_destroy();   // the NanoVG context and its framebuffer belong to this thread's OpenGL context
+    slinky_logf("unload: render target freed");
     slinky_logf("unload: handing the client back on the engine thread");
     engine_leave_and_free();
 }

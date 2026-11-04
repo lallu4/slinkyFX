@@ -64,8 +64,17 @@ extern "C" void auto_soup_input_hook(InHook *hook) {
 }
 
 extern "C" void auto_soup_enable(EvHook *hook) {
-    if (hook->ev != auto_soup_module_descriptor || hook->on != 1)
+    if (hook->ev != auto_soup_module_descriptor)
         return;
+    Ctx *ctx = hook->ctx;
+    if (hook->on != 1) {
+        // stage 2..5: the hotbar has been switched to the soup slot and the tick handler
+        // will not run again, so restore the original slot now.
+        unsigned st = auto_soup_stage;
+        if (ctx->player && st >= 2 && st <= 5 && auto_soup_soup_slot != auto_soup_original_slot)
+            java_set_inventory_player_current_item(ctx->jvm, java_get_entity_player_inventory(ctx->jvm, ctx->player), auto_soup_original_slot);
+        auto_soup_eat_another_one = 0;
+    }
     auto_soup_stage = 0;
     auto_soup_busy = 0;
     auto_soup_step_delay = 0.0f;
@@ -103,6 +112,8 @@ extern "C" float auto_soup_asm_pins_keep(float base) {
 extern "C" float auto_soup_asm_pins_keep(float base);
 extern "C" void auto_soup_on_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
+    if (!ctx->player)
+        return;
     if (auto_soup_input_consumed == 1 && (auto_soup_stage == 6 || auto_soup_stage == 0)) {
         queue_module_toggle(ctx->module_manager, auto_soup_module_descriptor, 0);
         return;

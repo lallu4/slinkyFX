@@ -1,12 +1,15 @@
-// No Item Release - descriptor +0x78.
+// No Item Release - descriptor +0x78 (outbound packet) / +0x98 (toggle).
 // Tracks (no_item_release_release_lock_flag) whether the held item is one whose use must not be
 // released; swords/bow/0x15a handling depends on the "mode" setting.
+// The flag is cleared on disable so a re-enable can't release the item for a stale placement.
 #include "slinky/engine.h"
 
+extern "C" char no_item_release_module_descriptor[];      // No Item Release module descriptor
 extern "C" unsigned no_item_release_mode;          // "mode" current value
 extern "C" unsigned char no_item_release_release_lock_flag;     // release-lock flag
 
 struct RelState { char padding_00[8]; void *w; void *x; char padding_18[0xc]; int state; };  // +0x24
+struct ToggleHook { char padding_00[8]; void *ctx; void *ev; unsigned char on; };
 
 FN(void *, java_jni_is_instance_of_c08_packet_player_block_placement, (void *w, void *candidate));
 FN(void *, java_get_c08_packet_player_block_placement_stack, (void *w, void *c08_packet_player_block_placement));
@@ -52,5 +55,11 @@ extern "C" void no_item_release_on_packet_sent(RelState *s) {
         return;
     if (java_c07_packet_player_digging_status(s->w, c08_packet_player_block_placement) == 5)
         s->state = 2;
+    no_item_release_release_lock_flag = 0;
+}
+
+extern "C" void no_item_release_on_toggle(ToggleHook *hook) {
+    if (hook->ev != no_item_release_module_descriptor || hook->on != 0)
+        return;
     no_item_release_release_lock_flag = 0;
 }

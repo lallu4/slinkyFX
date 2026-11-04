@@ -424,6 +424,9 @@ struct JIds {
     jclass    S2APacketParticles;                      // 0xd08  cls
     jmethodID Mouse_getDX;                             // 0xd10  sm ()I   appended: read-and-clear delta X
     jmethodID Mouse_getDY;                             // 0xd18  sm ()I   appended: read-and-clear delta Y
+    jclass    MouseHelper;                             // 0xd20  cls       appended: net.minecraft.util.MouseHelper
+    jfieldID  Minecraft_mouseHelper;                   // 0xd28  f        appended: Minecraft.mouseHelper
+    jmethodID MouseHelper_grabMouseCursor;             // 0xd30  m ()V     appended: the game's own grab
 };
 
 // The handle every engine call receives: ID table + JNIEnv.

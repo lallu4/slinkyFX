@@ -2996,6 +2996,7 @@ str_getdx:
 .globl str_getdy
 str_getdy:
 .asciz "getDY"
+.zero 4           # pad this pair to 16 bytes: later 16-byte constants are read with aligned SSE loads
 .globl str_org_lwjgl_input_keyboard
 str_org_lwjgl_input_keyboard:
 .asciz "org.lwjgl.input.Keyboard"
@@ -114405,3 +114406,36 @@ zero_padding_8_bytes_copy_c:
 .zero 8
 .byte 0x20,0x60,0x06,0x71,0xca,0x2f,0xe6,0x1e,0x80,0x00,0x83,0x3d,0x32,0x86,0x46,0x2b
 .byte 0x69,0xce,0x0c,0x72,0x16,0x80,0x82,0x46,0x24,0x72,0x16,0x80,0xee,0xc6,0xf4,0x72
+# ---- appended by hand: MouseHelper, the game's own cursor-grab path (engine/gui/jni_ids.cpp) ----
+.balign 16
+.globl str_net_minecraft_util_mousehelper
+str_net_minecraft_util_mousehelper:
+.asciz "net.minecraft.util.MouseHelper"
+.globl str_avf
+str_avf:
+.asciz "avf"
+.globl str_lnet_minecraft_util_mousehelper
+str_lnet_minecraft_util_mousehelper:
+.asciz "Lnet/minecraft/util/MouseHelper;"
+.globl str_lavf
+str_lavf:
+.asciz "Lavf;"
+.globl str_field_71417_b
+str_field_71417_b:
+.asciz "field_71417_B"
+.globl str_mousehelper
+str_mousehelper:
+.asciz "mouseHelper"
+.globl str_func_74372_a
+str_func_74372_a:
+.asciz "func_74372_a"
+.globl str_grabmousecursor
+str_grabmousecursor:
+.asciz "grabMouseCursor"
+.globl str_u_mh
+str_u_mh:
+.asciz "u"
+.globl str_a_mh
+str_a_mh:
+.asciz "a"
+.balign 16

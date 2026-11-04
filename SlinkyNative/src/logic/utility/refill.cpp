@@ -47,9 +47,14 @@ FN(int, java_call_static_item_get_id_from_item, (void *jvm, void *item));
 FN(unsigned, java_get_item_stack_metadata, (void *jvm, void *stack));
 
 extern "C" void refill_enable(EvHook *hook) {
-    if (hook->ev != refill_module_descriptor || hook->on != 1)
+    if (hook->ev != refill_module_descriptor)
         return;
     refill_pending_action = 0;
+    if (hook->on != 1) {
+        // a leftover wait would stall the first step after the module is switched back on
+        refill_step_delay = 0.0f;
+        refill_slot_being_moved = -1;
+    }
 }
 
 // class: 0 = empty, 1 = other / soup-less, 2 = splash heal potion,

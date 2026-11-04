@@ -19,6 +19,8 @@ extern "C" void no_hit_delay_on_attack(HitState *s) {
     Ctx *ctx = s->ctx;
     if (*((World *)ctx->jvm)->state == 0)
         return;
+    if (!ctx->player)
+        return;
     if (java_get_minecraft_left_click_counter(ctx->jvm, ctx->minecraft) <= 0)
         return;
     if (no_hit_delay_mode == 1) {

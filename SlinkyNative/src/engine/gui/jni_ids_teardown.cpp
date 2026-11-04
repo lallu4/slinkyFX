@@ -15,6 +15,7 @@ extern "C" void release_jni_ids(JIds *ids, JNIEnv *env) {
     RELEASE(Map);
     RELEASE(Keyboard);
     RELEASE(Mouse);
+    RELEASE(MouseHelper);
     RELEASE(Display);
     RELEASE(Object);
     RELEASE(SecureClassLoader);

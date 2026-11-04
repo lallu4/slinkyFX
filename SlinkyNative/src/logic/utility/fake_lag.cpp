@@ -1,12 +1,16 @@
-// Fake Lag - descriptors +0x48 (tick) / +0x78 (packet hook).
+// Fake Lag - descriptors +0x48 (tick) / +0x68 (inbound) / +0x78 (outbound) / +0x98 (toggle).
 // +0x48: manage the lag windows: per-direction counters ("inbound"/"outbound"
 //        ms budgets), and decide whether lagging is currently allowed.
-// +0x78: spend the budget while a packet is held; release (verdict 1) when it
-//        runs out, or let it straight through (verdict 3) for protected packets.
+// +0x68/+0x78 (one handler, event type 2 = inbound, 3 = outbound): keep the packet
+//        unopinionated while the window is open, otherwise spend the budget and hold
+//        (verdict 1) once it runs out; protected inbound packets pass straight
+//        through (verdict 3) when "realtime_damage" is on.
+// +0x98: drop the budgets/counters on disable - they belong to a lag cycle that no longer exists.
 #include "slinky/engine.h"
 #define LIKELY(c) __builtin_expect(!!(c), 1)
 #define H4(c) __builtin_expect(!!(c), 0)
 
+extern "C" char fake_lag_module_descriptor[];           // Fake Lag module descriptor
 extern "C" float fake_lag_inbound_value;            // "inbound"
 extern "C" float fake_lag_outbound_value;            // "outbound"
 extern "C" bool fake_lag_realtime_damage_value;             // "realtime_damage"
@@ -25,6 +29,7 @@ extern "C" volatile unsigned short fake_lag_inbound_budget;   // inbound budget
 extern "C" volatile unsigned short fake_lag_outbound_budget;   // outbound budget
 
 struct PktHook { int type; char padding_04[4]; Ctx *ctx; void *ev; long long budget; char padding_20[4]; int verdict; };  // +0x00/+0x08/+0x10/+0x18/+0x24
+struct ToggleHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 
 FN(int, java_get_entity_living_base_last_attacker_time, (void *jvm, void *entity_living_base));
 FN(unsigned char, is_holding_accepted_weapon, (void *jvm, void *object));
@@ -66,7 +71,7 @@ extern "C" void fake_lag_on_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     unsigned char ok;
     int hurt;
-    if (!ctx->world) goto off;
+    if (!ctx->world || !ctx->player) goto off;
     if (fake_lag_require_ingame_value == 1 && !ctx->in_game) goto off;
     hurt = java_get_entity_living_base_last_attacker_time(ctx->jvm, ctx->player);
     if (fake_lag_require_weapon_value == 1 && !is_holding_accepted_weapon(ctx->jvm, ctx->player)) {
@@ -120,4 +125,18 @@ extern "C" void fake_lag_on_packet_sent(PktHook *hook) {
         hook->budget = 0;
         hook->verdict = 1;
     }
+}
+
+extern "C" void fake_lag_on_toggle(ToggleHook *hook) {
+    if (hook->ev != fake_lag_module_descriptor || hook->on != 0)
+        return;
+    __atomic_exchange_n(&fake_lag_inbound_budget, (unsigned short)0, __ATOMIC_SEQ_CST);
+    __atomic_exchange_n(&fake_lag_outbound_budget, (unsigned short)0, __ATOMIC_SEQ_CST);
+    __atomic_exchange_n(&fake_lag_inbound_window_open, (unsigned char)0, __ATOMIC_SEQ_CST);
+    __atomic_exchange_n(&fake_lag_outbound_window_open, (unsigned char)0, __ATOMIC_SEQ_CST);
+    fake_lag_inbound_counter = 0;
+    fake_lag_outbound_counter = 0;
+    fake_lag_cooldown = 0;
+    // 0 = "not hurt": matches the resting value, so re-enabling does not look like a fresh hit
+    fake_lag_last_hurt_time = 0;
 }

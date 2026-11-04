@@ -16,13 +16,46 @@ static HANDLE engine_done;      // engine thread -> render thread: engine_disarm
 static HANDLE engine_leave;     // render thread -> engine thread: the client is down to nothing, free the DLL
 static int engine_disarm_answer;
 
+// Whether an engine owns this process is what the loader has to know before it injects, and the module list
+// cannot answer it: after an unload the image often stays mapped with nothing running in it. The name lives
+// as long as the engine thread holds its handle, so it goes out exactly when a new client may take over.
+static HANDLE engine_live_marker;
+
+// 1 = another engine is already in this process.
+static int live_marker_take(void) {
+    wchar_t name[48];
+    const wchar_t prefix[] = L"Local\\slinky-engine-";
+    int n = 0;
+    for (int i = 0; prefix[i]; i++) name[n++] = prefix[i];
+    DWORD pid = GetCurrentProcessId();
+    char digits[12];
+    int d = 0;
+    do { digits[d++] = (char)('0' + (int)(pid % 10)); pid /= 10; } while (pid);
+    while (d) name[n++] = (wchar_t)digits[--d];
+    name[n] = 0;
+    // This thread is new, so the last error is still 0 and only CreateEventW can have set it.
+    HANDLE h = CreateEventW(0, 1, 0, name);
+    if (!h) return 0;
+    if (GetLastError() == ERROR_ALREADY_EXISTS) { CloseHandle(h); return 1; }
+    engine_live_marker = h;
+    return 0;
+}
+
 static void free_and_exit(HMODULE self) {
     slinky_teardown();   // release what start-up built (init.cpp)
+    slinky_logf("unload: state freed");
     slinky_detach();     // ... and leave the JVM before this thread takes the module with it
+    slinky_logf("FINAL STATUS: UNLOADED");
+    if (engine_live_marker) CloseHandle(engine_live_marker);   // from here the game is free to take a new client
+    engine_live_marker = 0;
     FreeLibraryAndExitThread(self, 0);
 }
 
 static DWORD engine_thread(LPVOID self) {
+    if (live_marker_take()) {
+        slinky_logf("FINAL STATUS: ALREADY_RUNNING");
+        return 0;   // the other engine holds the game; this image stays inert and its marker closed
+    }
     engine_work = CreateEventW(nullptr, 0, 0, nullptr);
     engine_done = CreateEventW(nullptr, 0, 0, nullptr);
     engine_leave = CreateEventW(nullptr, 0, 0, nullptr);
@@ -51,6 +84,7 @@ static DWORD engine_thread(LPVOID self) {
     }
     WaitForSingleObject(engine_leave, INFINITE);
     Sleep(1000);   // the frames that entered a native before the hooks went out have to leave first
+    slinky_logf("unload: engine thread awake, freeing the client");
     free_and_exit((HMODULE)self);
     return 0;   // not reached: FreeLibraryAndExitThread ends the thread
 }

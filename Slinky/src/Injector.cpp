@@ -69,13 +69,43 @@ bool Injector::ExtractBundledDll(std::wstring& outDllPath, std::wstring& outLogP
     return false;
 }
 
+namespace {
+
+bool StageFreshCopy(const std::wstring& dllPath, std::wstring& outPath) {
+    size_t dot = dllPath.find_last_of(L'.');
+    if (dot == std::wstring::npos || dot < 2) return false;
+    wchar_t fresh[MAX_PATH * 2] = { 0 };
+    if (swprintf_s(fresh, MAX_PATH * 2, L"%.*ls-%lu%ls", (int)dot, dllPath.c_str(),
+                   GetTickCount(), dllPath.c_str() + dot) <= 0)
+        return false;
+    if (!CopyFileW(dllPath.c_str(), fresh, TRUE)) return false;
+    outPath = fresh;
+    return true;
+}
+
+} // namespace
+
 bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
     // A running client is taken out by its own Unload button, never from here: it owns a JVMTI environment,
     // a subclassed window procedure and Java classes that only its engine thread can release, so a remote
     // FreeLibrary would unmap code the game is still calling into.
-    if (ProcessUtil::IsModuleLoaded(pid, L"slinky-native.dll")) {
-        ConsoleUI::PrintFailure("Slinky is already running. Unload it from the menu, then inject again.");
-        return false;
+    if (ProcessUtil::IsSlinkyEngineRunning(pid)) {
+        // The engine thread leaves about a second after the client gave the game back. An unload that got
+        // that far has already released everything, so waiting beats refusing.
+        ConsoleUI::SetStatusText("Waiting for the previous Slinky to leave");
+        if (!ProcessUtil::WaitForSlinkyEngineToLeave(pid, 8000)) {
+            ConsoleUI::PrintFailure("Slinky is still running in that process. Unload it from the menu first.");
+            return false;
+        }
+    }
+
+    std::wstring injectPath = dllPath;
+    if (ProcessUtil::IsModuleMappedAt(pid, dllPath)) {
+        // A leftover image still holds this exact path, and LoadLibrary would hand that one back without
+        // running its entry point, so the new client goes in under a fresh name in the same folder - the
+        // engine writes its log next to its own image, which keeps the path the loader watches valid.
+        std::wstring fresh;
+        if (StageFreshCopy(dllPath, fresh)) injectPath = fresh;
     }
 
     HANDLE hProcess = OpenProcess(
@@ -87,7 +117,7 @@ bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
         return false;
     }
 
-    SIZE_T pathSizeBytes = (dllPath.length() + 1) * sizeof(wchar_t);
+    SIZE_T pathSizeBytes = (injectPath.length() + 1) * sizeof(wchar_t);
     LPVOID pRemotePath = VirtualAllocEx(hProcess, nullptr, pathSizeBytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
     if (!pRemotePath) {
@@ -96,7 +126,7 @@ bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
         return false;
     }
 
-    if (!WriteProcessMemory(hProcess, pRemotePath, dllPath.c_str(), pathSizeBytes, nullptr)) {
+    if (!WriteProcessMemory(hProcess, pRemotePath, injectPath.c_str(), pathSizeBytes, nullptr)) {
         ConsoleUI::PrintError("Copying DLL path into game", GetLastError());
         VirtualFreeEx(hProcess, pRemotePath, 0, MEM_RELEASE);
         CloseHandle(hProcess);
@@ -141,8 +171,10 @@ bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
         return false;
     }
 
-    if (!ProcessUtil::WaitForModuleLoad(pid, L"slinky-native.dll", 5000)) {
-        ConsoleUI::PrintFailure("DLL not in game after load attempt.");
+    // The engine thread names its marker before it does anything else, so this is the point where a new
+    // client is confirmed - a mapped image would also be true of the leftover one.
+    if (!ProcessUtil::WaitForSlinkyEngine(pid, 10000)) {
+        ConsoleUI::PrintFailure("No Slinky engine came up in game.");
         return false;
     }
 

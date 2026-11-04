@@ -108,6 +108,16 @@ extern "C" const char str_setcursorposition[];
 extern "C" const char jni_signature_ii_v[];
 extern "C" const char str_getdx[];
 extern "C" const char str_getdy[];
+extern "C" const char str_net_minecraft_util_mousehelper[];
+extern "C" const char str_avf[];
+extern "C" const char str_lnet_minecraft_util_mousehelper[];
+extern "C" const char str_lavf[];
+extern "C" const char str_field_71417_b[];
+extern "C" const char str_mousehelper[];
+extern "C" const char str_func_74372_a[];
+extern "C" const char str_grabmousecursor[];
+extern "C" const char str_u_mh[];
+extern "C" const char str_a_mh[];
 extern "C" const char str_org_lwjgl_input_keyboard[];
 extern "C" const char str_iskeydown[];
 extern "C" const char str_geteventkey[];
@@ -731,6 +741,37 @@ L_190ac:
     x = (void *)(*l->env)->GetStaticFieldID(l->env, (jclass)x, ptr_to_str_m[v3 + m].name, ptr_to_str_m[v3 + m].sig);
     ids->Minecraft_theMinecraft = (jfieldID)x;
     if (!x) goto L_1aff8;
+    // ---- MouseHelper.grabMouseCursor(): optional, tried under every mapping name ----
+    // The camera delta does not have to come from LWJGL at all. RawInput, for one, replaces
+    // net.minecraft.util.MouseHelper and fills mouseDeltaX/mouseDeltaY from its own device-sampling thread,
+    // so neither the window messages nor Mouse.getDX()/getDY() have anything to do with it and its queue only
+    // empties when the game takes the cursor back. grabMouseCursor() is the call those subclasses reset in,
+    // and it performs the grab itself, so it is the only generic way to hand the cursor over clean.
+    {
+        const NS mh_field[] = { { str_field_71417_b, str_lnet_minecraft_util_mousehelper },
+                                { str_mousehelper, str_lnet_minecraft_util_mousehelper },
+                                { str_u_mh, str_lavf } };
+        const char *const mh_class[] = { str_net_minecraft_util_mousehelper, str_avf };
+        const char *const mh_grab[] = { str_func_74372_a, str_grabmousecursor, str_a_mh };
+        for (int i = 0; i < 3 && !ids->Minecraft_mouseHelper; i++) {
+            x = (void *)(*l->env)->GetFieldID(l->env, (jclass)ids->Minecraft, mh_field[i].name, mh_field[i].sig);
+            if (!x) (*l->env)->ExceptionClear(l->env);
+            ids->Minecraft_mouseHelper = (jfieldID)x;
+        }
+        for (int i = 0; i < 2 && !ids->MouseHelper; i++) {
+            x = find_class(l->loader, l->env, mh_class[i]);
+            if (!x) {
+                (*l->env)->ExceptionClear(l->env);
+                continue;
+            }
+            ids->MouseHelper = (jclass)(*l->env)->NewGlobalRef(l->env, (jobject)x);
+        }
+        for (int i = 0; ids->MouseHelper && i < 3 && !ids->MouseHelper_grabMouseCursor; i++) {
+            x = (void *)(*l->env)->GetMethodID(l->env, ids->MouseHelper, mh_grab[i], str_v_in_jni_ids /* "()V" */);
+            if (!x) (*l->env)->ExceptionClear(l->env);
+            ids->MouseHelper_grabMouseCursor = (jmethodID)x;
+        }
+    }
     if ((unsigned)ids->variant == 0) goto L_194aa;
     x = (void *)(*l->env)->GetFieldID(l->env, (jclass)ids->Minecraft, ptr_to_str_h[v3 + m].name, ptr_to_str_h[v3 + m].sig);
     ids->Minecraft_thePlayer = (void *)x;
