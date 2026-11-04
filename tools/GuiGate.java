@@ -8,9 +8,18 @@ import dev.slinky.module.render.GuiModule;
  * It deliberately avoids compile-time dependencies on LWJGL or Minecraft
  * classes so the same source compiles against all three mapping jars without
  * needing a game/LWJGL classpath.
+ *
+ * It must also stay a single class file: PatchClient injects only GuiGate.class
+ * into the payload jars, so an inner or anonymous class here would compile to
+ * GuiGate$1.class, never reach the jar, and throw NoClassDefFoundError as soon
+ * as the method using it runs.
  */
-public final class GuiGate {
-    private GuiGate() {}
+public final class GuiGate implements Runnable {
+    private final GuiModule module;
+
+    private GuiGate(GuiModule module) {
+        this.module = module;
+    }
 
     /** True once a world/client level is loaded. */
     public static boolean inGame(ClientContext ctx) {
@@ -45,15 +54,15 @@ public final class GuiGate {
     }
 
     /** Save config asynchronously; the caller returns instantly. */
-    public static void asyncSave(final GuiModule module) {
+    public static void asyncSave(GuiModule module) {
         if (module == null) return;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    module.saveOnClose();
-                } catch (Throwable ignored) {}
-            }
-        }, "slinky-gui-save").start();
+        new Thread(new GuiGate(module), "slinky-gui-save").start();
+    }
+
+    @Override
+    public void run() {
+        try {
+            module.saveOnClose();
+        } catch (Throwable ignored) {}
     }
 }

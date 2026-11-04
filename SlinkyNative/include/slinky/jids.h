@@ -422,6 +422,8 @@ struct JIds {
     jclass    C14PacketTabComplete;                    // 0xcf8  cls
     jfieldID  C14PacketTabComplete_Ljava_lang_String_; // 0xd00  f Ljava/lang/String;
     jclass    S2APacketParticles;                      // 0xd08  cls
+    jmethodID Mouse_getDX;                             // 0xd10  sm ()I   appended: read-and-clear delta X
+    jmethodID Mouse_getDY;                             // 0xd18  sm ()I   appended: read-and-clear delta Y
 };
 
 // The handle every engine call receives: ID table + JNIEnv.

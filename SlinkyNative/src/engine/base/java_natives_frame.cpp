@@ -172,7 +172,16 @@ extern "C" char gui_state_block[];            // GUI state; [0x4cb] = unload req
 FN(void, restore_game_window, ());
 FN(void, gui_render_target_destroy, ());
 FN(void, java_set_minecraft_in_game_focus, (Jvm *jvm, void *minecraft, int value));
+FN(void, java_call_static_mouse_consume_delta, (Jvm *jvm));
 extern "C" unsigned char gui_owns_cursor;   // the ClickGUI holds Minecraft.inGameHasFocus cleared (logic/visual/gui.cpp)
+// Mouse.getDX()/getDY() are read-and-clear, and vanilla is their only reader: once per frame, and only while
+// Minecraft.inGameHasFocus is set. Clearing that flag for the menu stops the reading as well, so LWJGL keeps
+// the movement of its last poll - and the grab on the way back out queues a cursor warp that is only
+// measured at the next pump. Vanilla spends the whole of it as one frame of look, so the view jumps to where
+// the cursor was. Empty the accumulator after every pump while the menu holds the cursor, and for the frames
+// just after it lets go.
+static unsigned char frame_menu_held_cursor;
+static unsigned char frame_delta_drain_left;
 // the engine thread (platform/win/entry.cpp) owns the JVMTI environment, so the hook removal and the release of
 // the module have to run there; this thread only waits for the result and does what needs its OpenGL context
 FN(int, engine_disarm_hooks, ());
@@ -282,6 +291,15 @@ extern "C" void hook_update_display(JNIEnv *env) {
     }
     tick_modules(&ctx, timer, now);
     tick_netty(&jvm);
+    // last point in the frame that still precedes the next one's camera read: the pump above is where
+    // LWJGL measures this frame's cursor movement, so emptying the delta here leaves vanilla at most the
+    // movement of a single frame to spend when it takes the mouse back
+    if (gui_owns_cursor || frame_menu_held_cursor)
+        frame_delta_drain_left = 3;
+    else if (frame_delta_drain_left)
+        frame_delta_drain_left = frame_delta_drain_left - 1;
+    frame_menu_held_cursor = gui_owns_cursor;
+    if (frame_delta_drain_left) java_call_static_mouse_consume_delta(&jvm);
     if (!is_unload_requested_flag()) return;
     gui_state_block[0x4cb] = 0;   // consume the click immediately: one sequence per click, no repass if
                               // the user clicks again while this one is still running

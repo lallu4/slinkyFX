@@ -257,6 +257,13 @@ extern "C" void java_call_static_mouse_set_grabbed(Jvm *jvm, bool grab) {
 extern "C" void java_call_static_mouse_set_cursor_position(Jvm *jvm, int x, int y) {
     JCALL2(jvm, CallStaticVoidMethod, (jclass)ids->Mouse, (jmethodID)ids->Mouse_setCursorPosition, x, y);
 }
+// Mouse.getDX()/getDY() return the accumulated cursor delta and zero it, so calling them throws the
+// pending movement away. Vanilla is the only other reader, and it reads them once per frame while
+// Minecraft.inGameHasFocus is set.
+extern "C" void java_call_static_mouse_consume_delta(Jvm *jvm) {
+    JCALLN(jvm, CallStaticIntMethod, (jclass)ids->Mouse, (jmethodID)ids->Mouse_getDX);
+    JCALLN(jvm, CallStaticIntMethod, (jclass)ids->Mouse, (jmethodID)ids->Mouse_getDY);
+}
 extern "C" void keyboard_send_key(Jvm *jvm, jobject object, unsigned short c, int k) {
     JCALL1(jvm, CallVoidMethod, object, (jmethodID)ids->GuiScreen_keyTyped, (int)c, k);
 }

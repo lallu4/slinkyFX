@@ -49,6 +49,13 @@ public final class PatchClient {
 
     static int fallbacks;
 
+    /** One zip entry produced by the helper compile. */
+    static final class Entry {
+        final String name;
+        final byte[] data;
+        Entry(String name, byte[] data) { this.name = name; this.data = data; }
+    }
+
     public static void main(String[] args) throws Exception {
         for (String arg : args) {
             patchJar(Paths.get(arg));
@@ -56,7 +63,7 @@ public final class PatchClient {
     }
 
     static void patchJar(Path jar) throws Exception {
-        byte[] gateBytes = compileGate(jar);
+        List<Entry> gate = compileGate(jar);
 
         List<String> names = new ArrayList<>();
         List<byte[]> data = new ArrayList<>();
@@ -70,6 +77,7 @@ public final class PatchClient {
             while ((entry = zin.getNextEntry()) != null) {
                 String name = entry.getName();
                 byte[] bytes = readAll(zin);
+                if (isGateEntry(name)) continue;   // dropped here, re-added from the fresh compile below
                 if (name.equals("dev/slinky/module/render/NotificationsModule.class")) {
                     bytes = patchNotifications(bytes);
                     patchedNotif = true;
@@ -88,8 +96,10 @@ public final class PatchClient {
             }
         }
 
-        names.add(GATE + ".class");
-        data.add(gateBytes);
+        for (Entry e : gate) {
+            names.add(e.name);
+            data.add(e.data);
+        }
 
         try (ZipOutputStream zout = new ZipOutputStream(new BufferedOutputStream(Files.newOutputStream(jar)))) {
             for (int i = 0; i < names.size(); i++) {
@@ -103,19 +113,43 @@ public final class PatchClient {
                 + " notifications=" + patchedNotif
                 + " clickgui=" + patchedClickGui
                 + " guimodule=" + patchedGuiModule
-                + " timer=" + patchedTimerModule);
+                + " timer=" + patchedTimerModule
+                + " gateClasses=" + gate.size());
     }
 
-    static byte[] compileGate(Path againstJar) throws Exception {
-        return compileHelper(againstJar,
-                Paths.get("C:/dev/slinkyFX-main/tools/GuiGate.java"),
-                "dev/slinky/client/GuiGate.class");
+    // GuiGate.class plus the GuiGate$<n>.class files of its inner classes, under its package only.
+    static boolean isGateEntry(String name) {
+        if (!name.startsWith(GATE) || !name.endsWith(".class")) return false;
+        String rest = name.substring(GATE.length());
+        if (rest.equals(".class")) return true;
+        return rest.startsWith("$") && rest.indexOf('/', 1) < 0 && rest.indexOf('$', 1) < 0;
     }
 
-    static byte[] compileHelper(Path againstJar, Path source, String classNameInTmp) throws Exception {
+    static List<Entry> compileGate(Path againstJar) throws Exception {
+        return compileHelper(againstJar, Paths.get("C:/dev/slinkyFX-main/tools/GuiGate.java"), "GuiGate");
+    }
+
+    /**
+     * Compile the helper and return every class file the compile produced.
+     *
+     * The helper used to be injected as GuiGate.class alone, so the GuiGate$1.class of its anonymous
+     * Runnable never reached the payload and the first GuiModule.onDisable crashed the game with
+     * NoClassDefFoundError. Inner classes are collected with the top-level class now.
+     */
+    static List<Entry> compileHelper(Path againstJar, Path source, String baseName) throws Exception {
         Path tmp = Paths.get("C:/Users/twink/AppData/Local/Temp/opencode/patchclient_out/"
                 + againstJar.getFileName().toString().replace('.', '_'));
         Files.createDirectories(tmp);
+        Path pkg = tmp.resolve("dev/slinky/client");
+        // output of an earlier run would otherwise be re-injected even after its source class is gone
+        if (Files.isDirectory(pkg)) {
+            try (java.util.stream.Stream<Path> old = Files.list(pkg)) {
+                for (Path p : (Iterable<Path>) old::iterator) {
+                    String n = p.getFileName().toString();
+                    if (n.startsWith(baseName) && n.endsWith(".class")) Files.delete(p);
+                }
+            }
+        }
         ProcessBuilder pb = new ProcessBuilder(
                 "C:/Program Files/Eclipse Adoptium/jdk-8.0.504.1-hotspot/bin/javac.exe",
                 "-d", tmp.toString(),
@@ -127,7 +161,17 @@ public final class PatchClient {
         if (p.waitFor() != 0) {
             throw new RuntimeException("javac failed for " + source);
         }
-        return Files.readAllBytes(tmp.resolve(classNameInTmp));
+        List<Entry> produced = new ArrayList<>();
+        try (java.util.stream.Stream<Path> files = Files.list(pkg)) {
+            for (Path f : (Iterable<Path>) files::iterator) {
+                String n = f.getFileName().toString();
+                if (!n.endsWith(".class")) continue;
+                produced.add(new Entry("dev/slinky/client/" + n, Files.readAllBytes(f)));
+            }
+        }
+        if (produced.isEmpty()) throw new RuntimeException("helper compile produced no class files");
+        produced.sort(java.util.Comparator.comparing(e -> e.name));
+        return produced;
     }
 
     // ------------------------------------------------------------------

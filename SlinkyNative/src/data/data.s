@@ -3913,7 +3913,9 @@ auto_tool_module_descriptor:
 .quad str_auto_tool
 .quad str_selects_the_best_tool_when_dig
 .byte 0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
-.zero 440
+.zero 120
+.quad auto_tool_on_toggle
+.zero 312
 .quad auto_tool_on_inventory_tick
 .zero 8
 .quad auto_tool_on_shutdown

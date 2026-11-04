@@ -30,6 +30,10 @@ extern "C" unsigned char ghost_hand_should_ignore_entity(Ctx *ctx, void *entity)
     if (ghost_hand_require_mouse_setting == 1 && !vertex_pointer_current(ctx))
         return 0;
     const unsigned char *allow;
+    // the reach query comes from the mouse-over dispatch site, which leaves ctx->player NULL once the
+    // world is unloaded; the held-item read below goes straight into a JNI field access
+    if (!ctx->player)
+        return 0;
     void *held = item_held_hotbar_slot(ctx->jvm, ctx->player);
     if (!held) {
         allow = &ghost_hand_allow_with_fists;

@@ -2990,6 +2990,12 @@ str_setcursorposition:
 .globl jni_signature_ii_v
 jni_signature_ii_v:
 .asciz "(II)V"
+.globl str_getdx
+str_getdx:
+.asciz "getDX"
+.globl str_getdy
+str_getdy:
+.asciz "getDY"
 .globl str_org_lwjgl_input_keyboard
 str_org_lwjgl_input_keyboard:
 .asciz "org.lwjgl.input.Keyboard"

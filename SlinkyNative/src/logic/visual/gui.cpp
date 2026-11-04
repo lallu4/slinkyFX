@@ -120,6 +120,8 @@ extern "C" void gui_on_toggle(EvHook *hook) {
         return;
     }
     give_cursor_back(jvm, ctx->minecraft);
+    // setGrabbed() polls and resets the delta itself, so nothing is pending here; the cursor warp it queues
+    // is only measured at the next pump, and that is what the frame hook drains (base/java_natives_frame.cpp).
     if (is_in_game(jvm, ctx->minecraft))
         java_call_static_mouse_set_grabbed(ctx->jvm, 1);
     close_popup_now(gui_state_block);

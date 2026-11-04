@@ -158,6 +158,12 @@ extern "C" void block_in_tick(Hook *hook) {
     int bx, by, bz;
     unsigned char bit;
     unsigned char ground;
+    // event 0x12 dispatches with the world it was called on and the local player is not checked by the
+    // dispatch site; across a world change both can still be missing while the window has focus, and the
+    // whole body below reads them through JNI. Return without switching the module off: the frame says
+    // nothing about the build being finished.
+    if (!ctx->world || !ctx->player)
+        return;
     if (ctx->in_game != 1)
         goto off;
     ground = java_get_entity_on_ground(ctx->jvm, ctx->player);

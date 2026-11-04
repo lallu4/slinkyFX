@@ -156,6 +156,11 @@ extern "C" void bridge_assist_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     if (ctx->in_game != 1)
         return;
+    // event 0x11 dispatches with the world it was called on and the dispatch site does not check the
+    // local player; across a world change both can still be missing while the window has focus, and the
+    // sneak/edge logic below reads them through JNI
+    if (!ctx->world || !ctx->player)
+        return;
     void *game_settings = get_game_settings(ctx->jvm, ctx->minecraft);
     if (bridge_assist_cooldown_after_sneaking_ticks > 0)
         bridge_assist_cooldown_after_sneaking_ticks -= 1;
@@ -232,6 +237,10 @@ extern "C" void bridge_assist_place(PlaceEvt *h) {
     if (h->cancelled || bridge_assist_cooldown_after_sneaking_ticks == 0x14)
         return;
     Ctx *ctx = h->ctx;
+    // the click dispatch sites build the context without checking the local player, and both the edge
+    // test below and the held-item check at the end of the handler read the entity through JNI
+    if (!ctx->player)
+        return;
     if (bridge_assist_restrict_placing_edge == 1) {
         void *hit = java_get_minecraft_object_mouse_over(ctx->jvm, ctx->minecraft);
         if (hit && java_get_moving_object_position_type_ordinal(ctx->jvm, hit) == 1 && java_get_variant(ctx->jvm, hit) >= 2 && java_get_entity_on_ground(ctx->jvm, ctx->player)) {

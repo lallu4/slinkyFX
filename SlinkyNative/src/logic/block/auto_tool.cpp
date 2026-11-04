@@ -3,6 +3,7 @@
 #include "slinky/engine.h"
 
 struct Vec3 { double x, y, z; };
+struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };  // +0x10 / +0x18
 
 extern "C" int auto_tool_slot_switch_back;              // slot to switch back to (-1 = none)
 extern "C" int auto_tool_slot_we_switched;              // slot we switched to
@@ -45,6 +46,11 @@ FN(void, libc_free, (void *ptr));
 extern "C" void auto_tool_on_inventory_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     if (ctx->in_game != 1)
+        return;
+    // the controller dispatch site reads the local player and the world without checking either, and
+    // across a world change both can still be missing while the window has focus; every accessor
+    // below dereferences them through JNI
+    if (!ctx->world || !ctx->player)
         return;
     void *player = java_get_entity_player_inventory(ctx->jvm, ctx->player);
     int slot = java_get_inventory_player_current_item(ctx->jvm, player);
@@ -141,4 +147,20 @@ restore:
 extern "C" void auto_tool_on_shutdown(Hook *hook) {
     libc_free(auto_tool_allowed_block_set[0]);
     auto_tool_allowed_block_set[0] = auto_tool_allowed_block_set[1] = nullptr;
+}
+
+// disable: hand the hotbar back. The claim taken at the switch site is only dropped by this module's own
+// "stopped mining" path (restore:), so switching Auto Tool off mid-mine left the single hotbar owner slot
+// pointing at us forever - claim_release_hotbar_module() then refuses every other module (Auto Weapon,
+// Scaffold, Block In, Clutch) for the rest of the session, and the player stays on the slot we picked.
+extern "C" void auto_tool_on_toggle(EvHook *hook) {
+    if (hook->on || hook->ev != auto_tool_module_descriptor)
+        return;
+    Ctx *ctx = hook->ctx;
+    if (auto_tool_slot_switch_back != -1) {
+        java_set_inventory_player_current_item(ctx->jvm, java_get_entity_player_inventory(ctx->jvm, ctx->player), auto_tool_slot_switch_back);
+        auto_tool_slot_switch_back = -1;
+    }
+    release_owner(auto_tool_module_descriptor);
+    auto_tool_activation_countdown = 0;
 }

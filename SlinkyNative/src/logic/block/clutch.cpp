@@ -215,6 +215,11 @@ extern "C" void clutch_on_late_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     if (ctx->in_game != 1)
         return;
+    // event 0x12 dispatches with the world it was called on and the dispatch site does not check the
+    // local player; across a world change both can still be missing while the window has focus, and
+    // everything below reads them through JNI
+    if (!ctx->world || !ctx->player)
+        return;
     unsigned char ground = java_get_entity_on_ground(ctx->jvm, ctx->player);
     clutch_ticks_since_last_hurt = java_get_entity_living_base_hurt_time(ctx->jvm, ctx->player) == 0 ? clutch_ticks_since_last_hurt + 1 : 0;
     if (clutch_ticks_left_jump_snapback > 0) {

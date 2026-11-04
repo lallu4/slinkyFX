@@ -47,6 +47,10 @@ extern "C" void fast_place_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     if (ctx->in_game != 1)
         return;
+    // the mouse-over dispatch site leaves ctx->player NULL once the world is unloaded, even while the
+    // window still has focus, and the held-item check below reads it through JNI
+    if (!ctx->player)
+        return;
     void *key = java_get_game_settings_use_item_key(ctx->jvm, get_game_settings(ctx->jvm, ctx->minecraft));
     unsigned char was_held = fast_place_use_key_held_last_tick;
     unsigned char held = java_get_key_binding_key_code(ctx->jvm, key);
