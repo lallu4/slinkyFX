@@ -164,7 +164,7 @@ extern "C" Col minecraft_color_code_to_rgb(unsigned short ch) {
 // ---- chat output
 FN(void *, get_minecraft, (void *jvm));
 FN(void *, get_local_player, (void *jvm, void *minecraft));
-FN(int, libc_vsnprintf, (char *buf, unsigned long long n, const char *fmt, char *va));   // vsnprintf
+FN(int, libc_vsnprintf, (char *buf, unsigned long long n, const char *fmt, va_list ap));   // vsnprintf
 FN(void *, java_new_chat_component_text_init, (void *jvm, void *str));     // new ChatComponentText
 FN(void, java_call_entity_player_sp_add_chat_message, (void *jvm, void *entity_player_sp, void *msg));
 extern "C" char log_message_buffer[0x100];
@@ -256,6 +256,7 @@ extern "C" void set_rotation_active(void *jvm, void *object, bool render) {
     if (neg >= pitch || pitch >= step) dy = libc_truncf(pitch / step) * step;
     silent_rotation_offset.pitch = pitch - dy;
     if (dx == 0.0f && dy == 0.0f) return;
+    if (!object) return;   // the rotation accessors below bail on null; the arm-pitch ones are raw JNI writes
     Rot rotation = rot_add(get_entity_rotation(jvm, object), Rot{dx, dy});
     set_entity_rotation(jvm, object, rotation);
     set_entity_prev_rotation(jvm, object, rotation);

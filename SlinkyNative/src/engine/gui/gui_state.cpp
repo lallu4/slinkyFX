@@ -287,7 +287,7 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
                                  (int)((double)b.x + (double)b.w * factor_0_5_in_gui_state), (int)b.y);
                         if (clicked_inside_r_frame_local(gui, b)) {
                             const char *name = ent ? ent->name : 0;
-                            int error_code;
+                            int error_code = -1;   // every case below assigns it; the loop index never leaves 0..3
                             const char *msg;
                             switch (j) {
                             case 0:

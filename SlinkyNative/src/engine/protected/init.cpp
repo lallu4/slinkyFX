@@ -279,6 +279,37 @@ extern "C" int slinky_disarm(void) {
     return err;
 }
 
+// The class restore, one step per frame of the game. RetransformClasses takes the whole VM into a global
+// safepoint and throws away the compiled code of the classes it touches, so all nine in one call stop the game
+// dead for the length of it - measured on a live client at ~260 ms of frozen window in the middle of the
+// unload. One class per call puts each stop under a frame, and the game paints its own vanilla frame in
+// between, so the client is gone the moment it is clicked off and nothing ever looks hung.
+// 0 = the game has its original code back, 1 = call again next frame, anything else = the error that stopped
+// the pass (the client stays resident and allocated, exactly as in the one-shot failure above).
+static signed char g_disarm_step = -1;
+FN(int, remove_class_hooks_step, (JNIEnv *env, void **jvmti, int step, int *next));
+extern "C" int slinky_disarm_step(void) {
+    if (!classfile_hooks_1_while_hooks_are_installed && g_disarm_step < 0) return 0;
+    if (!init_javavm || !*init_javavm) return 0x7d3;
+    bool attached;
+    JNIEnv *env = attach(&attached);
+    if (!env) return ERR_NO_ENV;
+    // the one environment the install used, kept for the whole pass (see hooks_set on why a re-fetched
+    // environment has neither the capabilities nor the event callbacks)
+    if (!g_jvmti && (*init_javavm)->GetEnv(init_javavm, (void **)&g_jvmti, JVMTI_VERSION_1_2)) return ERR_NO_ENV;
+    int next = -1;
+    int err = remove_class_hooks_step(env, g_jvmti, g_disarm_step, &next);
+    g_disarm_step = err ? -1 : (signed char)next;
+    if (g_disarm_step < 0) g_jvmti = 0;
+    if (err) slinky_logf("Disabling hooks failed: %u", err);
+    return err ? err : (g_disarm_step >= 0);
+}
+
+// 1 while a stepped pass is half done: the classes it already handed back are vanilla, the rest of them still
+// call into this DLL, and only this thread holds the JVMTI environment that can finish the job. The engine
+// thread watches this to take the pass over if the game stops painting (platform/win/entry.cpp).
+extern "C" int slinky_disarm_in_flight(void) { return g_disarm_step >= 0; }
+
 // the engine thread leaves the JVM as the last step before it exits
 extern "C" void slinky_detach(void) {
     if (init_javavm && *init_javavm) (*init_javavm)->DetachCurrentThread(init_javavm);

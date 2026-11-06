@@ -77,11 +77,14 @@ extern "C" void inv_walk_on_toggle(EvHook *hook) {
 }
 
 extern "C" void inv_walk_on_gui_screen(GuiHook *hook) {
+    // Declared before the first goto: MSVC lets a jump step over an initialisation, the SysV C++ front end
+    // makes it an error, and the same file has to build for both.
+    unsigned long long n;
+    void *c16_packet_client_status, *jvm;
     if (__builtin_expect(inv_walk_mode != 1, 0))
         goto end;
-    unsigned long long n;
-    void *c16_packet_client_status = java_jni_is_instance_of_c16_packet_client_status(hook->a, hook->screen);
-    void *jvm = hook->a;
+    c16_packet_client_status = java_jni_is_instance_of_c16_packet_client_status(hook->a, hook->screen);
+    jvm = hook->a;
     if (c16_packet_client_status) {
         if (java_get_c16_packet_client_status_status(jvm, c16_packet_client_status) == 2) {
             hook->handled = 1;
@@ -130,9 +133,11 @@ end:
 }
 
 extern "C" void inv_walk_on_inventory_tick(Hook *hook) {
+    // Declared before the first goto: MSVC lets a jump step over an initialisation, the SysV C++ front end
+    // makes it an error, and the same file has to build for both.
+    Ctx *ctx = hook->ctx;
     if (__builtin_expect(inv_walk_replaying_queued_clicks, 0))
         goto end;
-    Ctx *ctx = hook->ctx;
     if (!release_global_refs(ctx->jvm))
         goto end;
     inv_walk_tick_last_screen_activity = inv_walk_tick_counter;

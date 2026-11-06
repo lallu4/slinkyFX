@@ -115,11 +115,13 @@ extern "C" void knockback_delay_on_late_tick(Hook *hook) {
         air = 0;
     AXCHG(knockback_delay_air, air);
     unsigned char ok = 0;
+    // Declared before the first goto: MSVC lets a jump step over an initialisation, the SysV C++ front end
+    // makes it an error, and the same file has to build for both.
+    struct Target { void *padding_00; void *ent; double dist2; } *target = (Target *)ctx->target;
     if (knockback_delay_require_air_value == 1 && !air) {
         knockback_delay_holding = 0;
         goto out;
     }
-    struct Target { void *padding_00; void *ent; double dist2; } *target = (Target *)ctx->target;
     if (!target->ent || target->dist2 > (double)(knockback_delay_range_value * knockback_delay_range_value))
         goto out;
     if (knockback_delay_require_weapon_value == 1 && !is_holding_accepted_weapon(ctx->jvm, ctx->player))

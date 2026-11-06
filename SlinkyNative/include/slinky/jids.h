@@ -427,6 +427,11 @@ struct JIds {
     jclass    MouseHelper;                             // 0xd20  cls       appended: net.minecraft.util.MouseHelper
     jfieldID  Minecraft_mouseHelper;                   // 0xd28  f        appended: Minecraft.mouseHelper
     jmethodID MouseHelper_grabMouseCursor;             // 0xd30  m ()V     appended: the game's own grab
+    jmethodID Mouse_getX;                              // 0xd38  sm ()I    appended: cursor position, not a delta
+    jmethodID Mouse_getY;                              // 0xd40  sm ()I
+    jmethodID Mouse_getDWheel;                         // 0xd48  sm ()I    appended: the wheel accumulator (the game reads the wheel from its event queue)
+    jfieldID  Mouse_buttons;                           // 0xd50  f Ljava/nio/ByteBuffer; appended: the polled button state
+    jfieldID  Keyboard_keyDownBuffer;                  // 0xd58  f Ljava/nio/ByteBuffer; appended: the polled key state
 };
 
 // The handle every engine call receives: ID table + JNIEnv.

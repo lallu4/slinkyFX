@@ -214,8 +214,9 @@ extern "C" jobject java_call_minecraft_add_scheduled_task(Jvm *jvm, void *minecr
 }
 
 // ---- JVMTI: switch the class hooks off again (undo of the install) ----
-// Disables the ClassFileLoadHook event, retransforms the 9 hooked classes so the game gets its original bytecode
-// back, drops the transformer's callbacks, natives and capabilities and finally its global ref. Errors are JVMTI error + 12000.
+// Disables the ClassFileLoadHook event, hands the hooked classes back to the game one at a time so the JVM's
+// stop-the-world is spread over frames, then drops the transformer's callbacks, natives and capabilities and
+// finally its global ref. Errors are JVMTI error + 12000.
 struct JvmtiTable { void *fn[160]; };
 typedef int (*JvmtiSetEventMode)(JvmtiTable **, int mode, int event, void *thread, ...);
 typedef int (*JvmtiRetransform)(JvmtiTable **, int count, jclass *classes);
@@ -225,40 +226,100 @@ typedef int (*JvmtiRelinquish)(JvmtiTable **, const void *caps);
 extern "C" unsigned char classfile_hooks_1_while_hooks_are_installed;       // 1 while the hooks are installed
 extern "C" jobject classfile_hooks_global_ref_transformer_class;              // global ref of the transformer class
 extern "C" const char ptr_to_hook_installer_class_file_slinkyhooks13[];        // JVMTI capabilities that were added
-// One call per step: the previous form evaluated `call` twice, so every check retransformed the classes again.
-#define JVMTI_CHECK(call)                        \
-    do {                                         \
-        int e_ = (call);                         \
-        if (e_) { err = e_ + 0x2ee0; goto out; } \
-    } while (0)
-extern "C" int remove_class_hooks(JNIEnv *env, JvmtiTable **jvmti) {
+
+// The class behind position i of the restore pass. Minecraft is position 8, not 0: its rewritten Display.update
+// call site is what keeps calling hook_update_display, so it has to be the last one handed back or the unload
+// stops half way with no frame left to continue from.
+static jclass disarm_class(int i) {
+    switch (i) {
+        case 0: return (jclass)hooked_class_entity_renderer.cls;
+        case 1: return (jclass)hooked_class_render_manager.cls;
+        case 2: return (jclass)hooked_class_renderer_living_entity.cls;
+        case 3: return (jclass)hooked_class_render_player.cls;
+        case 4: return (jclass)hooked_class_net_handler_play_client.cls;
+        case 5: return (jclass)hooked_class_world_client.cls;
+        case 6: return (jclass)hooked_class_entity.cls;
+        case 7: return (jclass)hooked_class_entity_living_base.cls;
+        default: return (jclass)hooked_class_minecraft.cls;
+    }
+}
+
+// One restore step. step = -1 starts the pass, 0..8 hands classes back, 9 releases the JVMTI side; *next is
+// the step to call back with, or -1 once the game is vanilla again.
+// The caller (engine/protected/init.cpp slinky_disarm_step) drives this once per frame; see the note there
+// about why one call for all nine classes is a stall the player sees.
+extern "C" double time_now();          // engine/protected/files.cpp, the clock the frame code uses too
+static int g_disarm_batch = 1;         // classes per RetransformClasses call, tuned by the stops themselves
+// The fixed part of a stop (bringing every thread of the game to a safepoint) is paid once per call, so one
+// class per call is the gentlest split but not the cheapest. The pass starts at one class and takes one more
+// per call as long as the measured stop stays under half the budget, and gives one back as soon as a stop
+// goes over it: whatever the machine turns out to be, it converges within a couple of frames and a stop only
+// exceeds the budget when a single class on its own already does.
+static const int kDisarmStopBudgetMs = 8;
+static int disarm_classes_back(int step, JvmtiTable **jvmti, int *errp) {
+    jclass batch[9];
+    int n = 0;
+    int i = step;
+    for (; i < 9 && n < g_disarm_batch; i++) {
+        jclass one = disarm_class(i);
+        // A class the game never loaded holds nothing of ours; the install skipped it the same way, and a
+        // skipped position costs nothing so it never stops the batch from filling up.
+        if (one) batch[n++] = one;
+    }
+    if (!n) return i;
+    double start = time_now();
+    int err = JVMTI(jvmti, 151, JvmtiRetransform)(jvmti, n, batch);
+    int took = (int)((time_now() - start) * 1000.0 + 0.5);
+    slinky_logf("disarm: %d class%s back in %d ms (err %d, next batch %d)", n, n == 1 ? "" : "es", took, err, g_disarm_batch);
+    if (took * 2 < kDisarmStopBudgetMs && g_disarm_batch < 4) g_disarm_batch++;
+    else if (took > kDisarmStopBudgetMs && g_disarm_batch > 1) g_disarm_batch--;
+    if (err) {
+        *errp = err + 0x2ee0;
+        return -1;
+    }
+    return i;
+}
+
+extern "C" int remove_class_hooks_step(JNIEnv *env, JvmtiTable **jvmti, int step, int *next) {
     int err = 0;
-    // Not armed = the hooks were never installed or another pass already consumed the flag (a failed
-    // pass left the game's patched calls live). Reporting success here made the unload sequence tear
-    // everything down while the JVM was still dispatching natives into this DLL: hs_err pid6708
-    // (java_set_render_manager_player_view_y via setRenderY) and pid2260 (serialize_settings via a second hook_update_display pass) look exactly like that.
-    if (!__sync_bool_compare_and_swap(&classfile_hooks_1_while_hooks_are_installed, 1, 0)) {
-        // A failed install may still have defined SlinkyHooks13 and kept its global ref.
-        if (env && classfile_hooks_global_ref_transformer_class) {
-            (*env)->DeleteGlobalRef(env, classfile_hooks_global_ref_transformer_class);
-            classfile_hooks_global_ref_transformer_class = 0;
+    *next = -1;
+    if (step < 0) {
+        // Not armed = the hooks were never installed or another pass already consumed the flag (a failed
+        // pass left the game's patched calls live). Reporting success here made the unload sequence tear
+        // everything down while the JVM was still dispatching natives into this DLL: hs_err pid6708
+        // (java_set_render_manager_player_view_y via setRenderY) and pid2260 (serialize_settings via a second
+        // hook_update_display pass) look exactly like that.
+        if (!__sync_bool_compare_and_swap(&classfile_hooks_1_while_hooks_are_installed, 1, 0)) {
+            // A failed install may still have defined SlinkyHooks13 and kept its global ref.
+            if (env && classfile_hooks_global_ref_transformer_class) {
+                (*env)->DeleteGlobalRef(env, classfile_hooks_global_ref_transformer_class);
+                classfile_hooks_global_ref_transformer_class = 0;
+            }
+            return 12000 + 49 /* JVMTI_ERROR_NOT_AVAILABLE */;
         }
-        return 12000 + 49 /* JVMTI_ERROR_NOT_AVAILABLE */;
+        g_disarming = 1;
+        g_disarm_batch = 1;   // every pass starts gentle and relearns the machine it is on
+        err = JVMTI(jvmti, 1, JvmtiSetEventMode)(jvmti, 0 /* JVMTI_DISABLE */, 0x36 /* CLASS_FILE_LOAD_HOOK */, 0);
+        if (err) { err += 0x2ee0; goto failed; }
+        *next = 0;
+        return 0;
     }
-    g_disarming = 1;
-    JVMTI_CHECK(JVMTI(jvmti, 1, JvmtiSetEventMode)(jvmti, 0 /* JVMTI_DISABLE */, 0x36 /* CLASS_FILE_LOAD_HOOK */, 0));
-    {
-        jclass classes[9] = {hooked_class_minecraft.cls, hooked_class_entity_renderer.cls, hooked_class_render_manager.cls, hooked_class_renderer_living_entity.cls, hooked_class_render_player.cls,
-                             hooked_class_net_handler_play_client.cls, hooked_class_world_client.cls, hooked_class_entity.cls, hooked_class_entity_living_base.cls};
-        JVMTI_CHECK(JVMTI(jvmti, 151, JvmtiRetransform)(jvmti, 9, classes));
+    if (step < 9) {
+        int after = disarm_classes_back(step, jvmti, &err);
+        if (after < 0) goto failed;
+        if (after < 9) {
+            *next = after;
+            return 0;   // the game paints this frame, the next one hands the rest back
+        }
+        // Minecraft - the class that holds the frame hook itself - is back, so the game no longer calls us and
+        // nothing may be left for a next frame: release the JVMTI side in this one.
     }
-    g_disarming = 0;
     // Nothing of ours may stay reachable from the JVM once the DLL is gone: the transformer's callbacks are
     // a copy the VM holds, and its native entry points are function pointers into this module.
     {
         char no_callbacks[0x138] = {};
-        int cb = JVMTI(jvmti, 121, JvmtiSetCallbacks)(jvmti, no_callbacks, sizeof no_callbacks);
-        if (cb) { err = cb + 0x2ee0; goto out; }
+        err = JVMTI(jvmti, 121, JvmtiSetCallbacks)(jvmti, no_callbacks, sizeof no_callbacks);
+        if (err) { err += 0x2ee0; goto failed; }
     }
     if (env && classfile_hooks_global_ref_transformer_class &&
         (*env)->UnregisterNatives(env, classfile_hooks_global_ref_transformer_class) != 0)
@@ -267,17 +328,30 @@ extern "C" int remove_class_hooks(JNIEnv *env, JvmtiTable **jvmti) {
         int rel = JVMTI(jvmti, 142, JvmtiRelinquish)(jvmti, ptr_to_hook_installer_class_file_slinkyhooks13);
         if (rel) err = rel + 0x2ee0;
     }
-out:
-    g_disarming = 0;
     if (classfile_hooks_global_ref_transformer_class) {
         (*env)->DeleteGlobalRef(env, classfile_hooks_global_ref_transformer_class);
         classfile_hooks_global_ref_transformer_class = 0;
     }
-    // A failed step leaves the client resident (the unload sequence cancels on errors): re-arm the flag
-    // so the next click gets a whole new pass. Retransform is idempotent, so resuming is safe.
-    slinky_logf("disarm: err=%d", err);
-    if (err) __sync_bool_compare_and_swap(&classfile_hooks_1_while_hooks_are_installed, 0, 1);
+    g_disarming = 0;
     return err;
+failed:
+    // The game still calls into this DLL, so everything stays allocated and resident: re-arm the flag and let
+    // the next click start a whole pass. Retransform is idempotent, so classes already restored survive it.
+    g_disarming = 0;
+    __sync_bool_compare_and_swap(&classfile_hooks_1_while_hooks_are_installed, 0, 1);
+    slinky_logf("disarm: err=%d at step %d", err, step);
+    return err;
+}
+
+// The whole pass in one call: the start-up failure path has no frames left to spread it over.
+extern "C" int remove_class_hooks(JNIEnv *env, JvmtiTable **jvmti) {
+    int step = -1;
+    for (;;) {
+        int next;
+        int err = remove_class_hooks_step(env, jvmti, step, &next);
+        if (err || next < 0) return err;
+        step = next;
+    }
 }
 
 // ---- class-file patcher: rewrites a call/field instruction that matches a hook entry into `invokestatic hook` ----

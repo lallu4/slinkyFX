@@ -170,6 +170,7 @@ FN(void, unregister_channel_class, (Jvm *jvm, Pair16 *p));
 FN(void, tick_post_frame, (HCtx *ctx, void *state));
 extern "C" char gui_state_block[];            // GUI state; [0x4cb] = unload requested
 FN(void, restore_game_window, ());
+FN(void, input_poll_client_state, (Jvm *jvm, void *minecraft));   // platform/linux/input.cpp: the LWJGL/GLFW state poll
 FN(void, gui_render_target_destroy, ());
 FN(void, java_set_minecraft_in_game_focus, (Jvm *jvm, void *minecraft, int value));
 FN(void, java_call_static_mouse_consume_delta, (Jvm *jvm));
@@ -185,8 +186,10 @@ static unsigned char frame_menu_held_cursor;
 static unsigned char frame_delta_drain_left;
 // the engine thread (platform/win/entry.cpp) owns the JVMTI environment, so the hook removal and the release of
 // the module have to run there; this thread only waits for the result and does what needs its OpenGL context
-FN(int, engine_disarm_hooks, ());
+FN(int, engine_disarm_step, ());
 FN(void, engine_leave_and_free, ());
+FN(bool, java_call_mouse_helper_grab_cursor, (Jvm *jvm, void *minecraft));
+FN(void, java_call_static_mouse_set_grabbed, (Jvm *jvm, bool grab));
 typedef void (*GlPushAttrib)(unsigned);
 typedef void (*GlPopAttrib)();
 extern "C" GlPushAttrib *ptr_to_pGlPushAttrib;
@@ -204,11 +207,113 @@ struct GuiEvent2 { long long type; HCtx *ctx; void *gui; float dt; char rest[0x2
 static inline __attribute__((always_inline)) void spin_lock() {
     while (__atomic_exchange_n(&frame_spinlock, 1, __ATOMIC_SEQ_CST)) __builtin_ia32_pause();
 }
+
+// ---- the unload, over the frames it takes ----
+// The click is answered by the frame that heard it. From the frame after that the game gets one hooked class
+// back per frame (engine/protected/init.cpp slinky_disarm_step): RetransformClasses takes the whole VM into a
+// global safepoint, so all nine in one call is one stop the player watches - measured at ~260 ms of frozen
+// window with the menu already gone in front of it. One per frame keeps every stop under one frame and lets the
+// game paint its own vanilla frame in between, so the client is out of sight the moment it is clicked off.
+// The cursor goes back on the first frame of that pass, before the first stop, not after the last one.
+// The shutdown flag is deliberately NOT raised on the click. These natives are the bodies of the game's own
+// methods - the class files say so - so an inert hook_update_entities is a world that stops updating, an inert
+// hook_update_controller a player that stops moving, an inert hook_send_packet packets that stop leaving. The
+// flag can only go up once the classes are back; until then the client keeps working exactly as it did, which
+// is why the restore hands the drawing classes back before the logic ones (classfile_hooks.cpp disarm_class) -
+// the overlays are gone a couple of frames into the pass even though the natives are still answering calls.
+static unsigned char unload_detach_frame;   // 1 = the click was heard, 2 = classes are going back
+
+static int ms_since(double from) { return (int)((time_now() - from) * 1000.0 + 0.5); }
+
+// Everything after the flag is freed by the engine thread, so it has to go up here - but the instance can be
+// gone (disconnect or world switch during the restore), and then the pipeline, the module list and the screen
+// it would have posted to are the JVM's business, not ours. What is always ours is the save, the window
+// subclass, the render target and the word that lets the engine thread free the DLL: an unload that stopped
+// here left all of that behind, held the staging folder open, and parked the engine thread waiting for a
+// hand-off nobody was going to make - a repeat click then cost the game a thirty-second wait on an answer
+// that could never come.
+static void unload_teardown(JNIEnv *env) {
+    Jvm jvm = {java_natives_world_cached_jni_ids, env};
+    void *minecraft = get_minecraft(&jvm);
+    HCtx ctx;
+    __builtin_memset(&ctx, 0, sizeof ctx);
+    // unload: save settings, notify and disable every module, tear down
+    double phase = time_now();
+    int saved = save_settings(java_natives_world_module_manager, init_profile_list);
+    slinky_logf("unload: settings saved=%d (%d ms)", saved, ms_since(phase));
+    if (minecraft) {
+        make_ctx(&ctx, &jvm, minecraft);
+        HEvent e3 = {};
+        e3.type = 0x1a;
+        e3.ctx = &ctx;
+        Mgr *mgr = (Mgr *)java_natives_world_module_manager;
+        phase = time_now();
+        for (unsigned long long i = 0; i < mgr->count; i++)
+            if (mgr->data[i]->on_shutdown) mgr->data[i]->on_shutdown(&e3);
+        for (unsigned long long i = 0; i < mgr->count; i++) queue_module_toggle(java_natives_world_module_manager, mgr->data[i], 0);
+        slinky_logf("unload: shutdown notified and toggles queued (%d ms)", ms_since(phase));
+    }
+    // The tap is taken out of the pipeline with a Java call, and netty waits for its own event loop to flush
+    // pending handler callbacks before a pipeline change from a foreign thread completes. That event loop is
+    // inside on_packet, spinning on frame_spinlock, so holding the lock across this call deadlocks both threads
+    // and the game stops painting. The shutdown flag below makes on_packet inert first, so no lock is needed.
+    // The Java hooks are already out by this point: removal failing means the caller does not get here, and
+    // freeing under the game while its patched code still calls in is the use-after-free hs_err pid6708
+    // (setRenderY) and pid2260 (serialize_settings) showed.
+    phase = time_now();
+    spin_lock();
+    java_natives_frame_client_shutting_down_natives_check = 1;
+    Pair16 p = init_slinkychannelhandler_class_constructor;
+    frame_spinlock = 0;
+    if (minecraft) {
+        unregister_channel_class(&jvm, &p);
+        apply_module_toggles(&ctx);
+        tick_post_frame(&ctx, java_natives_frame_module_manager_target_state);
+    }
+    slinky_logf("unload: packet tap removed and modules applied (%d ms)", ms_since(phase));
+    phase = time_now();
+    restore_game_window();
+    gui_render_target_destroy();   // the NanoVG context and its framebuffer belong to this thread's OpenGL context
+    slinky_logf("unload: window and render target released (%d ms)", ms_since(phase));
+    slinky_logf("unload: handing the client back on the engine thread");
+    engine_leave_and_free();
+}
+
 extern "C" void hook_update_display(JNIEnv *env) {
     if (java_natives_frame_client_shutting_down_natives_check) return;   // the client is shutting down; this frame must not touch anything the
                                // unload thread is about to free (save_settings of a second pass crashed here)
     hook_game_window();
-    if (!java_natives_world_cached_jni_ids || !java_natives_world_module_manager) return;
+    if (!java_natives_world_cached_jni_ids) return;   // nothing is hooked up yet, this frame is the game's own
+    if (unload_detach_frame) {
+        Jvm djvm = {java_natives_world_cached_jni_ids, env};
+        void *minecraft = get_minecraft(&djvm);
+        // The pass runs to the end whatever the game does underneath it: the classes already handed back are
+        // vanilla, the rest still call into this DLL, and only these frames - or the engine thread's watchdog -
+        // can hand the remainder back. So a missing instance costs the steps that need one, not the unload.
+        // The pump is what the rewritten Display.update call site would have done; without it the window stops
+        // swapping, and every frame of this pass has to swap.
+        tick_netty(&djvm);
+        if (unload_detach_frame == 1) {
+            unload_detach_frame = 2;
+            // Nothing of ours is drawn from here on, so the cursor goes back to the game now: the helper does
+            // the grab and, on top of it, resets its own delta source, and the movement made inside the menu is
+            // thrown away in this same frame - it is read at the top of the next one, so the game never sees it.
+            if (minecraft && gui_owns_cursor && is_in_game(&djvm, minecraft)) {
+                java_set_minecraft_in_game_focus(&djvm, minecraft, 1);
+                if (!java_call_mouse_helper_grab_cursor(&djvm, minecraft))
+                    java_call_static_mouse_set_grabbed(&djvm, 1);
+            }
+            java_call_static_mouse_consume_delta(&djvm);
+        }
+        double phase = time_now();
+        int step = engine_disarm_step();
+        slinky_logf("unload: disarm=%d (%d ms)", step, ms_since(phase));
+        if (step == 1) return;   // one class back per frame; the next frame takes the next one
+        unload_detach_frame = 0;
+        if (step) return;        // the hooks are still in: everything stays allocated, the click can be repeated
+        unload_teardown(env);
+        return;
+    }
     Jvm jvm = {java_natives_world_cached_jni_ids, env};
     void *minecraft = get_minecraft(&jvm);
     void *player = get_local_player(&jvm, minecraft);
@@ -292,6 +397,12 @@ extern "C" void hook_update_display(JNIEnv *env) {
     }
     tick_modules(&ctx, timer, now);
     tick_netty(&jvm);
+#ifdef __linux__
+    // LWJGL 2 measures the frame's input inside the pump above and X11 hands no window procedure to read it from,
+    // so the state poll that the Win32 build does through the subclassed window - and the button overlay the auto
+    // clicker presses through - has to run here, after the poll and before the game reads the state next tick.
+    input_poll_client_state(&jvm, minecraft);
+#endif
     // last point in the frame that still precedes the next one's camera read: the pump above is where
     // LWJGL measures this frame's cursor movement, so emptying the delta here leaves vanilla at most the
     // movement of a single frame to spend when it takes the mouse back
@@ -304,49 +415,9 @@ extern "C" void hook_update_display(JNIEnv *env) {
     if (!is_unload_requested_flag()) return;
     gui_state_block[0x4cb] = 0;   // consume the click immediately: one sequence per click, no repass if
                               // the user clicks again while this one is still running
-    // Take the Java hooks out before touching any state. If removal fails the game will keep calling
-    // these natives; the old sequence still freed the module manager from the unload thread and the
-    // next frame crashed in save_settings -> serialize_settings on the freed module list. In that case keep the client
-    // resident (everything stays allocated) and cancel the unload request instead. The native entries
-    // check java_natives_frame_client_shutting_down_natives_check, so a partial removal followed by the real teardown can no longer fault
-    // either: everything the game still reaches goes inert the moment this branch commits.
-    int hoff = engine_disarm_hooks();
-    slinky_logf("unload: hooks-off=%d", hoff);
-    if (hoff) return;
-    // unload: save settings, notify and disable every module, tear down
-    int saved = save_settings(java_natives_world_module_manager, init_profile_list);
-    slinky_logf("unload: settings saved=%d", saved);
-    HEvent e3 = {};
-    e3.type = 0x1a;
-    e3.ctx = &ctx;
-    Mgr *mgr = (Mgr *)java_natives_world_module_manager;
-    for (unsigned long long i = 0; i < mgr->count; i++)
-        if (mgr->data[i]->on_shutdown) mgr->data[i]->on_shutdown(&e3);
-    slinky_logf("unload: shutdown notified");
-    for (unsigned long long i = 0; i < mgr->count; i++) queue_module_toggle(java_natives_world_module_manager, mgr->data[i], 0);
-    slinky_logf("unload: toggles queued");
-    spin_lock();
-    slinky_logf("unload: lock taken");
-    java_natives_frame_client_shutting_down_natives_check = 1;
-    Pair16 p = init_slinkychannelhandler_class_constructor;
-    frame_spinlock = 0;
-    slinky_logf("unload: lock released");
-    // The tap is taken out of the pipeline with a Java call, and netty waits for its own event loop to flush
-    // pending handler callbacks before a pipeline change from a foreign thread completes. That event loop is
-    // inside on_packet, spinning on frame_spinlock, so holding the lock across this call deadlocks both threads
-    // and the game stops painting. The shutdown flag above already makes on_packet inert, so no lock is needed.
-    unregister_channel_class(&jvm, &p);
-    slinky_logf("unload: packet tap removed");
-    apply_module_toggles(&ctx);
-    slinky_logf("unload: toggles applied");
-    tick_post_frame(&ctx, java_natives_frame_module_manager_target_state);
-    slinky_logf("unload: post frame ticked");
-    restore_game_window();
-    slinky_logf("unload: window restored");
-    gui_render_target_destroy();   // the NanoVG context and its framebuffer belong to this thread's OpenGL context
-    slinky_logf("unload: render target freed");
-    slinky_logf("unload: handing the client back on the engine thread");
-    engine_leave_and_free();
+    // The frame that follows paints the game with nothing of ours on it and only then starts the teardown, so
+    // the stall the hook removal causes is never shown with the menu frozen in front of it.
+    unload_detach_frame = 1;
 }
 
 // ---- set the key bind of a module: re-register it in the bind map, then tell the modules (event 0x18) ----

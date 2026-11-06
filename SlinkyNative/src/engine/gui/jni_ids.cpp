@@ -633,6 +633,18 @@ extern "C" int load_all_jni_ids(JIds *ids, JLoad *l) {
     x = (void *)(*l->env)->GetStaticMethodID(l->env, (jclass)ids->Mouse, str_getdy /* "getDY" */, str_i_in_jni_ids /* "()I" */);
     ids->Mouse_getDY = (jmethodID)x;
     if (!x) goto L_1aff8;
+    // The Linux input pump's reads (see platform/linux/input.cpp). LWJGL is not remapped, so these names are the
+    // same in every client; a miss is not a reason to fail the whole table - the pump loses that one read instead.
+    // Each miss is cleared where it happens: a pending NoSuchMethodError would otherwise be thrown into whatever
+    // Java call comes next.
+    ids->Mouse_getX = (jmethodID)(*l->env)->GetStaticMethodID(l->env, (jclass)ids->Mouse, "getX", "()I");
+    if (!ids->Mouse_getX) (*l->env)->ExceptionClear(l->env);
+    ids->Mouse_getY = (jmethodID)(*l->env)->GetStaticMethodID(l->env, (jclass)ids->Mouse, "getY", "()I");
+    if (!ids->Mouse_getY) (*l->env)->ExceptionClear(l->env);
+    ids->Mouse_getDWheel = (jmethodID)(*l->env)->GetStaticMethodID(l->env, (jclass)ids->Mouse, "getDWheel", "()I");
+    if (!ids->Mouse_getDWheel) (*l->env)->ExceptionClear(l->env);
+    ids->Mouse_buttons = (jfieldID)(*l->env)->GetStaticFieldID(l->env, (jclass)ids->Mouse, "buttons", "Ljava/nio/ByteBuffer;");
+    if (!ids->Mouse_buttons) (*l->env)->ExceptionClear(l->env);
     x = find_class(l->loader, l->env, str_org_lwjgl_input_keyboard /* "org.lwjgl.input.Keyboard" */);
     if (!x) goto L_1aff8;
     x = (void *)(*l->env)->NewGlobalRef(l->env, (jobject)x);
@@ -650,6 +662,9 @@ extern "C" int load_all_jni_ids(JIds *ids, JLoad *l) {
     x = (void *)(*l->env)->GetStaticMethodID(l->env, (jclass)ids->Keyboard, str_geteventkeystate /* "getEventKeyState" */, str_z_in_jni_ids /* "()Z" */);
     ids->Keyboard_getEventKeyState = (jmethodID)x;
     if (!x) goto L_1aff8;
+    // the byte array Keyboard.isKeyDown() reads, so the Linux pump takes the whole key state in one JNI call
+    ids->Keyboard_keyDownBuffer = (jfieldID)(*l->env)->GetStaticFieldID(l->env, (jclass)ids->Keyboard, "keyDownBuffer", "Ljava/nio/ByteBuffer;");
+    if (!ids->Keyboard_keyDownBuffer) (*l->env)->ExceptionClear(l->env);
     x = find_class(l->loader, l->env, str_org_lwjgl_opengl_display /* "org.lwjgl.opengl.Display" */);
     if (!x) goto L_1aff8;
     x = (void *)(*l->env)->NewGlobalRef(l->env, (jobject)x);

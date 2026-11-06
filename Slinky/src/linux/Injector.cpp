@@ -958,6 +958,41 @@ static void TryRelaxYamaScope() {
     close(fd);
 }
 
+// One file into this run's private staging folder: the game process opens what is in there, never what sits
+// next to the loader, so a second run cannot read or replace it (the same rule that puts the Windows staging
+// in %TEMP%\slinky-<pid>).
+static bool StageFile(const std::string& source, const std::string& dest) {
+    int in = open(source.c_str(), O_RDONLY);
+    if (in < 0) {
+        ConsoleUI::PrintError("Reading bundled library", errno);
+        return false;
+    }
+    unlink(dest.c_str());
+    int out = open(dest.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (out < 0) {
+        close(in);
+        ConsoleUI::PrintError("Writing bundled library", errno);
+        return false;
+    }
+    char buf[65536];
+    ssize_t r;
+    while ((r = read(in, buf, sizeof(buf))) > 0) {
+        if (write(out, buf, (size_t)r) != r) {
+            close(in); close(out);
+            ConsoleUI::PrintError("Writing bundled library", errno);
+            return false;
+        }
+    }
+    close(in);
+    close(out);
+    if (r < 0) {
+        ConsoleUI::PrintError("Reading bundled library", errno);
+        return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -1001,34 +1036,14 @@ bool Injector::ExtractBundledSo(std::string& outSoPath, std::string& outLogPath)
     outLogPath = tmpDir + "/slinky-native.log";
     unlink(outLogPath.c_str());
 
-    // Copy so the game process opens our staging dir (a private /tmp folder
-    // keeps concurrent loader runs isolated, like %TEMP%\slinky-<pid>).
-    int in = open(source.c_str(), O_RDONLY);
-    if (in < 0) {
-        ConsoleUI::PrintError("Reading bundled library", errno);
-        return false;
-    }
-    unlink(outSoPath.c_str());
-    int out = open(outSoPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (out < 0) {
-        close(in);
-        ConsoleUI::PrintError("Writing bundled library", errno);
-        return false;
-    }
-    char buf[65536];
-    ssize_t r;
-    while ((r = read(in, buf, sizeof(buf))) > 0) {
-        if (write(out, buf, (size_t)r) != r) {
-            close(in); close(out);
-            ConsoleUI::PrintError("Writing bundled library", errno);
-            return false;
-        }
-    }
-    close(in);
-    close(out);
-    if (r < 0) {
-        ConsoleUI::PrintError("Reading bundled library", errno);
-        return false;
+    if (!StageFile(source, outSoPath)) return false;
+
+    // 1.7.10 runs the C++ client, and that is a second file: the bootstrap dlopens libslinky-engine.so from
+    // the folder it was loaded from. It is not required here, because 1.8.9 never asks for it; a 1.7.10 game
+    // without it is what the bootstrap's own FINAL STATUS: FAILED is for.
+    std::string engineSource = exeDir + "/libslinky-engine.so";
+    if (access(engineSource.c_str(), R_OK) == 0) {
+        if (!StageFile(engineSource, tmpDir + "/libslinky-engine.so")) return false;
     }
     return true;
 }
@@ -1063,6 +1078,16 @@ bool Injector::InjectDll(pid_t pid, const std::string& soPath) {
     // A previous instance must be unloaded first (Windows does the same
     // before every injection).  Fresh games skip this entirely.
     if (ProcessUtil::IsModuleLoaded(pid, "slinky-native")) {
+        // The 1.7.10 client is a second image, and while it is mapped the bootstrap can be holding the thread
+        // that is waiting to unmap it. Closing the file that thread is standing in - which is exactly what the
+        // dlclose below does - takes the game down with it, so a client that is still running has to be stopped
+        // from inside the game. A client that was already unloaded is not caught here: unmapping the engine is
+        // that thread's last act, and by the time the loader sees the file gone the thread is gone too.
+        if (ProcessUtil::IsModuleLoaded(pid, "libslinky-engine.so")) {
+            ConsoleUI::PrintFailure(
+                "slinkyFX is still running in the game. Unload it there (the unload key) and inject again.");
+            return false;
+        }
         if (!dlcloseFn) {
             ConsoleUI::PrintFailure("Could not unload previous instance (dlclose missing).");
             return false;

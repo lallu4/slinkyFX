@@ -245,9 +245,9 @@ extern "C" jint java_c0_bpacket_entity_action(Jvm *jvm, jobject object) {
     return vt->GetIntField(env, object, id);
 }
 extern "C" jobject java_call_channel_pipeline_add_before(Jvm *jvm, jobject channel_pipeline, const char *a, const char *b, void *c) {
-    JNIEnv *env = jvm->env;
-    jstring sa = (*env)->NewStringUTF(env, a);
-    jstring sb = (*env)->NewStringUTF(env, b);
+    JNIEnv *strings_env = jvm->env;   // JCALL below brings its own `env`; this one is only for the two string builds
+    jstring sa = (*strings_env)->NewStringUTF(strings_env, a);
+    jstring sb = (*strings_env)->NewStringUTF(strings_env, b);
     return JCALL1(jvm, CallObjectMethod, channel_pipeline, (jmethodID)ids->ChannelPipeline_addBefore, sa, sb, c);
 }
 extern "C" jint java_get_c16_packet_client_status_status(Jvm *jvm, jobject c16_packet_client_status) {

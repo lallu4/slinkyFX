@@ -2,10 +2,9 @@
 # slinkyFX - single cross-platform build script.
 #
 #   Windows (Git Bash / MSYS2 / Cygwin): slinky-loader.exe + slinky-native.dll
-#   Linux (x86_64):                      slinky-loader + libslinky-native.so
+#   Linux (x86_64):                      slinky-loader + libslinky-native.so (+ libslinky-engine.so for 1.7.10)
 #
-# Everything lands in ./dist. Keep the two files in the same folder when
-# running the loader.
+# Everything lands in ./dist. Keep the files in the same folder when running the loader.
 #
 # Usage:
 #   ./build.sh          configure + build + verify + copy to dist/
@@ -13,7 +12,19 @@
 #
 # Needs: CMake 3.20+, a C++17 compiler. On Windows the slinkyFX native engine
 #        in SlinkyNative/ is built with the bundled clang-cl toolchain in tools/llvm/.
-#        Python 3 is optional; when present the module export ledger is checked.
+#        Needs: Python 3 on Windows - the constant alignment check runs the built engine
+#        through it and fails the build when a 16-byte constant would be read misaligned.
+#        The module export ledger is optional and skipped when its script is not in the tree.
+#
+# On Linux, ./build.sh additionally produces build/linux-engine/libslinky-engine.so - the 1.7.10 client -
+# when clang, lld and the LLVM tools are installed. It is built with the machine's own toolchain.
+#
+# The same file can be cross-built from Windows instead, which is how one .so is made to serve every
+# distribution (it links against an old glibc to keep the requirement low):
+#   tools/setup-linux-sysroot.sh && tools/build-linux-engine.sh
+#
+# Windows-only, and not part of ./build.sh: tools/check-linux-bootstrap.sh compiles the Linux sources here,
+# so a mistake in the loader or the bootstrap is caught before someone else's build.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -76,7 +87,7 @@ MINGW*|MSYS*|CYGWIN*)
     echo "[3/5] Building loader (Release)..."
     cmake --build build --config Release
 
-    echo "[4/5] Verifying the module export (hash ledger)..."
+    echo "[4/5] Verifying the module export (hash ledger) and the constant alignment..."
     verifier="SlinkyNative/audit/VerifyExport.py"
     if [[ ! -f "$verifier" ]]; then
         echo "       (skipped: $verifier is not in the tree)"
@@ -99,6 +110,24 @@ PY
         echo "       package code verified (audit-document ledger entries are reference-only)"
     fi
 
+    # src/data/rdata.s is a sequential dump, so an insertion that is not a multiple of 16
+    # bytes slides every later constant - and the 16-byte ones are read with aligned SSE
+    # loads, which fault instead of misbehaving quietly. v1.3.0 shipped exactly that and
+    # crashed on joining a world. The check runs against the built engine, not the source.
+    aligner="SlinkyNative/audit/AlignAudit.py"
+    if [[ ! -f "$aligner" ]]; then
+        echo "[X] $aligner is missing; the constant alignment cannot be verified" >&2
+        exit 1
+    elif [[ -z "$PYEXE" ]]; then
+        echo "[X] python is required to verify the constant alignment" >&2
+        exit 1
+    else
+        "$PYEXE" "$aligner" "build/SlinkyNative/slinky-native.dll" || {
+            echo "[X] a 16-byte constant is read misaligned - pad the insertion in $aligner's message to 16 bytes" >&2
+            exit 1
+        }
+    fi
+
     for f in build/bin/Release/slinky-loader.exe build/bin/Release/slinky-native.dll; do
         if [[ ! -f "$f" ]]; then
             echo "[X] $(basename "$f") was not produced in build" >&2
@@ -115,10 +144,10 @@ PY
     # ------------------------------------------------------------------
     # Linux
     # ------------------------------------------------------------------
-    echo "[1/3] Configuring..."
+    echo "[1/4] Configuring..."
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-    echo "[2/3] Building..."
+    echo "[2/4] Building the loader and libslinky-native.so (the 1.8.9 client)..."
     cmake --build build -j"$(nproc)"
 
     for f in build/bin/slinky-loader build/bin/libslinky-native.so; do
@@ -128,9 +157,34 @@ PY
         fi
     done
 
-    echo "[3/3] Copying to dist/ (keep both files in the same folder)"
+    # 1.7.10 runs the C++ engine, and on this platform it is a third file: libslinky-engine.so, which the
+    # bootstrap dlopens from the folder the loader staged it in. It needs clang, lld and the LLVM tools rather
+    # than the g++ that builds everything else above - the engine was written and verified against clang, its
+    # warning set is clang's, and the alignment check below reads clang's disassembly - so it is a separate
+    # step that a 1.8.9 player without those packages can walk straight past.
+    echo "[3/4] Building libslinky-engine.so (the 1.7.10 client)..."
+    engine_tools=""
+    for t in clang clang++ ld.lld llvm-readelf llvm-objdump llvm-nm; do
+        command -v "$t" >/dev/null 2>&1 || engine_tools="$engine_tools $t"
+    done
+    ENGINE_BUILT=0
+    if [[ -n $engine_tools ]]; then
+        echo "       skipped - missing:$engine_tools"
+        echo "       1.8.9 is complete without it; for 1.7.10 install them and run tools/build-linux-engine.sh"
+    else
+        bash tools/build-linux-engine.sh || {
+            echo "[X] the 1.7.10 engine failed to build above" >&2; exit 1; }
+        ENGINE_BUILT=1
+    fi
+
+    echo "[4/4] Copying to dist/ (keep the files in the same folder)"
     mkdir -p dist
     cp -f build/bin/slinky-loader build/bin/libslinky-native.so dist/
-    echo "[OK] dist/slinky-loader + dist/libslinky-native.so"
+    if [[ $ENGINE_BUILT -eq 1 ]]; then
+        cp -f build/linux-engine/libslinky-engine.so dist/
+        echo "[OK] dist/slinky-loader + dist/libslinky-native.so + dist/libslinky-engine.so"
+    else
+        echo "[OK] dist/slinky-loader + dist/libslinky-native.so   (1.8.9 only)"
+    fi
     ;;
 esac

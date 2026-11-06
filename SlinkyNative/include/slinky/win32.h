@@ -1,11 +1,32 @@
 // Minimal Win32 declarations for the readable reimplementations in src/engine/protected/.
 // (The image calls these through the protector's encrypted import slots; here they are ordinary imports.)
+//
+// On Linux the same prototypes are served by src/platform/linux/win32.cpp, which implements them on POSIX, so the
+// engine sources that use them (files.cpp, key_codes_and_path_helpers.cpp) stay byte-identical on both platforms.
+// The wide types keep their Windows shape there: wchar_t is 2 bytes (-fshort-wchar), because the paths, the
+// UTF-16 literals in .rdata and calloc(0x105, 2) in settings_path_append were recovered from the image that way.
+// Path separators are the other image-side habit: the path code joins with L'\\' and POSIX reads '/', so the
+// conversion that turns a wide path into a file name folds '\' to '/'. A literal backslash in a Linux file name
+// would be lost by that fold; that is the one behaviour the two platforms do not share.
 #pragma once
 #include <stddef.h>
 
+#ifdef _WIN32
+#define WINAPI __stdcall
+#else
+#define WINAPI
+#endif
+// The decoration the prototypes carry. Empty on both platforms: x64 has one calling convention, these are
+// ordinary imports here rather than exports, and the header has to stay readable as one file for both builds.
+#define SLINKY_API
+
 typedef void *HANDLE, *HWND, *HMODULE, *HINSTANCE, *LPVOID;
 typedef int BOOL;
-typedef unsigned long DWORD;
+#ifdef _WIN32
+typedef unsigned long DWORD;      // Win32 "long" is 32-bit
+#else
+typedef unsigned int DWORD;       // on LP64 a long would be 64-bit and change every layout here
+#endif
 typedef long long LONG_PTR, LRESULT;
 typedef unsigned long long ULONG_PTR, WPARAM;
 typedef long long LPARAM;
@@ -24,7 +45,6 @@ struct WIN32_FIND_DATAW {
     wchar_t alt_name[14];
 };
 
-#define WINAPI __stdcall
 #define INVALID_HANDLE ((HANDLE)(LONG_PTR)-1)
 #define GENERIC_READ 0x80000000u
 #define GENERIC_WRITE 0x40000000u
@@ -47,43 +67,43 @@ struct WIN32_FIND_DATAW {
 #define INFINITE 0xffffffffu
 
 extern "C" {
-__declspec(dllimport) BOOL WINAPI QueryPerformanceCounter(long long *count);
-__declspec(dllimport) BOOL WINAPI QueryPerformanceFrequency(long long *freq);
-__declspec(dllimport) DWORD WINAPI GetLastError();
-__declspec(dllimport) BOOL WINAPI CreateDirectoryW(const wchar_t *path, void *security);
-__declspec(dllimport) BOOL WINAPI DeleteFileW(const wchar_t *path);
-__declspec(dllimport) HANDLE WINAPI CreateFileW(const wchar_t *path, DWORD access, DWORD share, void *security,
+SLINKY_API BOOL WINAPI QueryPerformanceCounter(long long *count);
+SLINKY_API BOOL WINAPI QueryPerformanceFrequency(long long *freq);
+SLINKY_API DWORD WINAPI GetLastError();
+SLINKY_API BOOL WINAPI CreateDirectoryW(const wchar_t *path, void *security);
+SLINKY_API BOOL WINAPI DeleteFileW(const wchar_t *path);
+SLINKY_API HANDLE WINAPI CreateFileW(const wchar_t *path, DWORD access, DWORD share, void *security,
                                                 DWORD disposition, DWORD flags, HANDLE templ);
-__declspec(dllimport) DWORD WINAPI GetFileSize(HANDLE h, DWORD *high);
-__declspec(dllimport) BOOL WINAPI ReadFile(HANDLE h, void *buf, DWORD n, DWORD *done, void *overlapped);
-__declspec(dllimport) BOOL WINAPI WriteFile(HANDLE h, const void *buf, DWORD n, DWORD *done, void *overlapped);
-__declspec(dllimport) BOOL WINAPI CloseHandle(HANDLE h);
-__declspec(dllimport) HANDLE WINAPI FindFirstFileW(const wchar_t *pattern, WIN32_FIND_DATAW *fd);
-__declspec(dllimport) BOOL WINAPI FindNextFileW(HANDLE h, WIN32_FIND_DATAW *fd);
-__declspec(dllimport) BOOL WINAPI FindClose(HANDLE h);
-__declspec(dllimport) void WINAPI GetSystemTimeAsFileTime(FILETIME *ft);
-__declspec(dllimport) HINSTANCE WINAPI ShellExecuteW(HWND hwnd, const wchar_t *op, const wchar_t *file,
+SLINKY_API DWORD WINAPI GetFileSize(HANDLE h, DWORD *high);
+SLINKY_API BOOL WINAPI ReadFile(HANDLE h, void *buf, DWORD n, DWORD *done, void *overlapped);
+SLINKY_API BOOL WINAPI WriteFile(HANDLE h, const void *buf, DWORD n, DWORD *done, void *overlapped);
+SLINKY_API BOOL WINAPI CloseHandle(HANDLE h);
+SLINKY_API HANDLE WINAPI FindFirstFileW(const wchar_t *pattern, WIN32_FIND_DATAW *fd);
+SLINKY_API BOOL WINAPI FindNextFileW(HANDLE h, WIN32_FIND_DATAW *fd);
+SLINKY_API BOOL WINAPI FindClose(HANDLE h);
+SLINKY_API void WINAPI GetSystemTimeAsFileTime(FILETIME *ft);
+SLINKY_API HINSTANCE WINAPI ShellExecuteW(HWND hwnd, const wchar_t *op, const wchar_t *file,
                                                      const wchar_t *params, const wchar_t *dir, int show);
-__declspec(dllimport) HMODULE WINAPI GetModuleHandleA(const char *name);
-__declspec(dllimport) void *WINAPI GetProcAddress(HMODULE m, const char *name);
-__declspec(dllimport) HWND WINAPI GetForegroundWindow();
-__declspec(dllimport) BOOL WINAPI IsWindowUnicode(HWND hwnd);
-__declspec(dllimport) DWORD WINAPI GetWindowThreadProcessId(HWND hwnd, DWORD *pid);
-__declspec(dllimport) DWORD WINAPI GetCurrentProcessId();
-__declspec(dllimport) HANDLE WINAPI CreateThread(void *security, size_t stack, THREAD_START start, LPVOID param,
+SLINKY_API HMODULE WINAPI GetModuleHandleA(const char *name);
+SLINKY_API void *WINAPI GetProcAddress(HMODULE m, const char *name);
+SLINKY_API HWND WINAPI GetForegroundWindow();
+SLINKY_API BOOL WINAPI IsWindowUnicode(HWND hwnd);
+SLINKY_API DWORD WINAPI GetWindowThreadProcessId(HWND hwnd, DWORD *pid);
+SLINKY_API DWORD WINAPI GetCurrentProcessId();
+SLINKY_API HANDLE WINAPI CreateThread(void *security, size_t stack, THREAD_START start, LPVOID param,
                                                  DWORD flags, DWORD *id);
-__declspec(dllimport) HANDLE WINAPI CreateEventW(void *security, BOOL manual_reset, BOOL initial_state, const wchar_t *name);
-__declspec(dllimport) BOOL WINAPI SetEvent(HANDLE e);
-__declspec(dllimport) DWORD WINAPI WaitForSingleObject(HANDLE h, DWORD ms);
-__declspec(dllimport) void WINAPI Sleep(DWORD ms);
-__declspec(dllimport) void WINAPI FreeLibraryAndExitThread(HMODULE m, DWORD code);
-__declspec(dllimport) int WINAPI WideCharToMultiByte(UINT codepage, DWORD flags, const wchar_t *src, int n, char *dst,
+SLINKY_API HANDLE WINAPI CreateEventW(void *security, BOOL manual_reset, BOOL initial_state, const wchar_t *name);
+SLINKY_API BOOL WINAPI SetEvent(HANDLE e);
+SLINKY_API DWORD WINAPI WaitForSingleObject(HANDLE h, DWORD ms);
+SLINKY_API void WINAPI Sleep(DWORD ms);
+SLINKY_API void WINAPI FreeLibraryAndExitThread(HMODULE m, DWORD code);
+SLINKY_API int WINAPI WideCharToMultiByte(UINT codepage, DWORD flags, const wchar_t *src, int n, char *dst,
                                                  int dst_size, const char *def, BOOL *used_def);
-__declspec(dllimport) int WINAPI MultiByteToWideChar(UINT codepage, DWORD flags, const char *src, int n, wchar_t *dst,
+SLINKY_API int WINAPI MultiByteToWideChar(UINT codepage, DWORD flags, const char *src, int n, wchar_t *dst,
                                                  int dst_size);
-__declspec(dllimport) HANDLE WINAPI GetStdHandle(DWORD which);
-__declspec(dllimport) void WINAPI OutputDebugStringA(const char *text);
-__declspec(dllimport) HMODULE WINAPI LoadLibraryA(const char *name);
-__declspec(dllimport) BOOL WINAPI DisableThreadLibraryCalls(HMODULE m);
+SLINKY_API HANDLE WINAPI GetStdHandle(DWORD which);
+SLINKY_API void WINAPI OutputDebugStringA(const char *text);
+SLINKY_API HMODULE WINAPI LoadLibraryA(const char *name);
+SLINKY_API BOOL WINAPI DisableThreadLibraryCalls(HMODULE m);
 wchar_t *_wgetenv(const wchar_t *name);
 }

@@ -111,8 +111,11 @@ endif()
 set(DATA_OBJ)
 foreach(part rdata data iat)
     set(obj ${CMAKE_CURRENT_BINARY_DIR}/data_${part}.obj)
+    # -x assembler-with-cpp, because the section line is guarded with # ifdef _WIN32: clang preprocesses a .s
+    # only when the argument list says so, and without it the guards read as comments and both spellings of the
+    # section get assembled - the COFF one, then the ELF one, which is a syntax error here.
     add_custom_command(OUTPUT ${obj}
-        COMMAND ${SLINKY_CLANG} --target=x86_64-pc-windows-msvc -c ${CMAKE_CURRENT_SOURCE_DIR}/src/data/${part}.s -o ${obj}
+        COMMAND ${SLINKY_CLANG} --target=x86_64-pc-windows-msvc -x assembler-with-cpp -c ${CMAKE_CURRENT_SOURCE_DIR}/src/data/${part}.s -o ${obj}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/data/${part}.s VERBATIM)
     list(APPEND DATA_OBJ ${obj})
 endforeach()
@@ -148,7 +151,18 @@ target_compile_options(slinky PRIVATE
     "SHELL:-Xclang -target-feature -Xclang +slow-incdec"
     "SHELL:-Xclang -target-feature -Xclang -fast-11bytenop"
     "SHELL:-Xclang -target-feature -Xclang -fast-15bytenop"
-    -w)
+    # Warnings are opt-in here rather than -Wall minus a pile of -Wno flags: this code reads Java objects as
+    # (char *)base + offset, so the style checks (-Wold-style-cast, -Wpadded, -Wcast-align, -Wmissing-prototypes, the
+    # C++98/GNU compatibility families, -Wunsafe-buffer-usage) fire thousands of times over and bury anything real.
+    # The set below is the bug-catching part: it costs nothing to keep quiet and speaks up on the mistakes that
+    # actually break the game - dead stores, uninitialized reads, wrong formats, out-of-range indexes, bad casts.
+    -Wno-everything
+    -Wunused -Wuninitialized -Winit-self -Wreturn-type -Wswitch -Wswitch-bool
+    -Wformat -Wformat-security -Warray-bounds -Wstringop-overflow -Wstringop-truncation
+    -Wsizeof-array-argument -Wsizeof-pointer-memaccess -Wnonnull -Wnonnull-compare
+    -Wtautological-compare -Wtautological-constant-out-of-range-compare -Wpointer-bool-conversion
+    -Wbool-conversion -Wconditional-uninitialized -Wimplicit-fallthrough -Wunused-result
+    -Wdelete-non-virtual-dtor -Wmismatched-tags -Woverloaded-virtual -Wshadow)
 target_include_directories(slinky PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanovg/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/gl)
 # the bundled C libraries (NanoVG, stb) get a minimal libc declaration set instead of the Windows SDK's headers
 set_source_files_properties(${NANOVG_SRC} PROPERTIES COMPILE_OPTIONS "-I${CMAKE_CURRENT_SOURCE_DIR}/third_party/minicrt/include")

@@ -3,12 +3,16 @@
 #include "slinky/platform.h"
 #include "slinky/win32.h"
 
+extern "C" double time_now();   // engine/protected/files.cpp: the process counter clock the frame code uses too
+
 // The engine thread is the only thread that talks to JVMTI, and it lives for as long as the DLL does:
 // slinky_setup runs on it and stays attached (see init.cpp), the unload hands the hook removal back to it,
 // and only after that succeeded does it free the state and the module itself.
 // Requests come from the game's render thread, which owns the OpenGL context the GUI was built with:
-//   engine_disarm_hooks()   -> the engine thread takes the Java hooks out, the answer is its error code
+//   engine_disarm_step()    -> the engine thread hands one hooked class back, the answer is 0/1/error
 //   engine_leave_and_free() -> the render thread is done with the frame; the engine thread frees everything
+// Each request is answered before the frame goes on, because this thread is standing inside the game's own
+// rewritten call site: the next frame - and the next step - would come from here.
 enum { ERR_NO_ENGINE_THREAD = 0x801, ERR_DISARM_TIMED_OUT = 0x802 };
 
 static HANDLE engine_work;      // render thread -> engine thread: take the hooks out
@@ -76,11 +80,31 @@ static DWORD engine_thread(LPVOID self) {
     slinky_logf("FINAL STATUS: RUNNING");
 
     for (;;) {
-        WaitForSingleObject(engine_work, INFINITE);
-        engine_disarm_answer = slinky_disarm();
+        // With a pass half finished this wait is not infinite. The game can stop painting - minimised, a
+        // world being switched, a window closed - with half its classes vanilla and the other half still
+        // calling into this DLL, and nothing else in the process holds the JVMTI environment that can hand
+        // the rest back. A second without a frame means the frames are gone, so this thread finishes the
+        // pass itself; a render thread that later comes back finds it done and tears down as usual.
+        if (WaitForSingleObject(engine_work, slinky_disarm_in_flight() ? 1000 : INFINITE) == WAIT_TIMEOUT) {
+            int answer;
+            do {
+                answer = slinky_disarm_step();
+            } while (answer == 1);
+            slinky_logf("unload: no frame came for a second, the classes went back here instead (%s)",
+                        answer ? "a step failed" : "done");
+            continue;   // engine_done stays clear: only a request that was really posted gets an answer
+        }
+        double start = time_now();
+        engine_disarm_answer = slinky_disarm_step();
+        int answer = engine_disarm_answer;
+        slinky_logf("unload: restore step took %d ms (%s)", (int)((time_now() - start) * 1000.0 + 0.5),
+                    !answer ? "the game is vanilla" : answer == 1 ? "more classes to go" : "failed");
         SetEvent(engine_done);
-        if (!engine_disarm_answer) break;
-        slinky_logf("unload: the hooks are still in, everything stays as it is - try again");
+        // 1 = the game is not vanilla yet and the render thread asks again on its next frame; an error means
+        // the hooks stayed in and everything has to remain allocated, so the engine thread waits here for
+        // another click exactly as it did when the whole pass was one call.
+        if (!answer) break;
+        if (answer != 1) slinky_logf("unload: the hooks are still in, everything stays as it is - try again");
     }
     WaitForSingleObject(engine_leave, INFINITE);
     Sleep(1000);   // the frames that entered a native before the hooks went out have to leave first
@@ -89,7 +113,11 @@ static DWORD engine_thread(LPVOID self) {
     return 0;   // not reached: FreeLibraryAndExitThread ends the thread
 }
 
-extern "C" int engine_disarm_hooks(void) {
+// Post one restore step and wait for its answer: 0 = the game has its original code back, 1 = more frames to
+// go, anything else = the error that stopped the pass. The wait is only as long as one class, and it has to
+// stay a wait: this thread is standing inside the game's own rewritten call site, so it is where the next
+// frame - and therefore the next step - comes from.
+extern "C" int engine_disarm_step(void) {
     if (!engine_work || !engine_done) return ERR_NO_ENGINE_THREAD;
     SetEvent(engine_work);
     if (WaitForSingleObject(engine_done, 30000) != WAIT_OBJECT_0) return ERR_DISARM_TIMED_OUT;

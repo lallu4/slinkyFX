@@ -6,6 +6,10 @@
 
 #ifdef _WIN32
 #include <psapi.h>
+#else
+#include <dlfcn.h>
+#include <pthread.h>
+#include <unistd.h>
 #endif
 
 // Directory separator: identical literals on Windows, POSIX on Linux builds.
@@ -47,13 +51,7 @@ InjectionStatus PayloadLoader::LoadAndStart(HMODULE hModule, const MinecraftInfo
     }
 
     if (mcInfo.mapping == MappingType::Legacy1710) {
-#ifdef _WIN32
         return LoadNativeEngine(hModule, mcInfo);
-#else
-        Logger::Log(L"1.7.10 is only supported on Windows in this build (native engine is a Windows DLL)");
-        Logger::Log(L"FINAL STATUS: FAILED");
-        return InjectionStatus::Failed;
-#endif
     }
 
     bool alreadyRunning = false;
@@ -617,6 +615,87 @@ InjectionStatus PayloadLoader::LoadNativeEngine(HMODULE hModule, const Minecraft
     Logger::Log(L"1.7.10 native engine loaded (%ls)", enginePath.c_str());
     Logger::Log(L"Slinky is running");
     Logger::Log(L"FINAL STATUS: RUNNING");
+    return InjectionStatus::Success;
+}
+#else
+
+namespace {
+
+// The engine never unmaps itself: its thread is the last thing running inside the image, and a thread that
+// frees the code it is standing in takes the process down with it. So the engine only says that it has
+// finished - in the variable it exports for this one purpose - and the module that loaded it does the unmap.
+// That module is this one, and this is the wait.
+struct EngineImage {
+    void *image;
+    volatile int *exited;
+};
+
+void *ReapEngineImage(void *arg) {
+    EngineImage *engine = static_cast<EngineImage *>(arg);
+    // The flag is the only reason this thread exists, so the caller has to have found it. Waiting without it
+    // would mean unmapping the image while its thread may still be inside - which is the one thing the whole
+    // handshake is there to avoid.
+    while (!*engine->exited) usleep(50 * 1000);
+    dlclose(engine->image);
+    delete engine;
+    return nullptr;
+}
+
+} // namespace
+
+InjectionStatus PayloadLoader::LoadNativeEngine(HMODULE hModule, const MinecraftInfo& mcInfo) {
+    std::wstring engineDir = GetModuleDirectory(hModule);
+    if (engineDir.empty()) engineDir = std::wstring(L".");
+    std::wstring enginePath = engineDir + SLINKY_DIRSEP + L"libslinky-engine.so";
+    std::string native = w32compat::WideToUtf8(enginePath);
+
+    // RTLD_NOLOAD asks whether the file is already in the process without taking a second hold of it. Two
+    // holds would not mean two clients - an image already mapped does not run its start-up again - it would
+    // mean one client that this call pretends to have started. Saying it here also saves the loader from
+    // waiting out its budget for a status line that was never going to be written.
+    void *resident = dlopen(native.c_str(), RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
+    if (resident) {
+        dlclose(resident);   // a probe only; the client already running keeps the hold it took at load
+        Logger::Log(L"Slinky is already active; nothing was started");
+        Logger::Log(L"FINAL STATUS: ALREADY_RUNNING");
+        return InjectionStatus::AlreadyRunning;
+    }
+
+    // RTLD_LOCAL: the engine's five handshake symbols are the whole of what it offers the process, and the
+    // rest stays inside it - nothing here may answer a lookup the JVM or another library meant to make.
+    void *image = dlopen(native.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!image) {
+        const char *err = dlerror();
+        Logger::Log(L"native engine failed to load: %ls (%hs)", enginePath.c_str(), err ? err : "no message from the loader");
+        Logger::Log(L"FINAL STATUS: FAILED");
+        return InjectionStatus::Failed;
+    }
+
+    // dlopen has run the image's constructor, and that constructor is what starts the engine thread. What
+    // happens next is the engine's own - including the FINAL STATUS line the loader waits for, which it writes
+    // into the same slinky-native.log as this file, because the loader staged both into one folder and each
+    // writes beside itself. Nothing here reports a status: from this side the engine is only a promise.
+    Logger::Log(L"1.7.10 native engine loaded (%hs)", native.c_str());
+
+    volatile int *exited = static_cast<volatile int *>(dlsym(image, "slinky_engine_exited"));
+    if (!exited) {
+        // The build checks that the engine exports this name, so reaching here means the two files in front of
+        // us are not the pair that was made together. Leave the image mapped: it is inert after an unload and
+        // harmless to the game, and unmapping it from here would be a guess about where its thread is.
+        Logger::Log(L"native engine will stay mapped after unload: it does not carry slinky_engine_exited");
+        return InjectionStatus::Success;
+    }
+
+    EngineImage *engine = new EngineImage{image, exited};
+    pthread_t reaper;
+    if (pthread_create(&reaper, nullptr, ReapEngineImage, engine) == 0) {
+        pthread_detach(reaper);
+    } else {
+        // No wait, so no unmap: the same as above - after an unload the image stays mapped, inert (every native
+        // checks the shutdown flag) and harmless to the game, but a second client would need the game restarted.
+        Logger::Log(L"native engine will stay mapped after unload: no thread could wait for it to finish");
+        delete engine;
+    }
     return InjectionStatus::Success;
 }
 #endif

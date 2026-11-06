@@ -24,9 +24,9 @@ private:
     static bool DefinePayloadClasses(JNIEnv* env, jobject classLoader, const std::wstring& jarPath);
     static bool LaunchBootstrap(JNIEnv* env, jobject classLoader, const MinecraftInfo& mcInfo, const std::wstring& jarPath);
 
-#ifdef _WIN32
+    // The C++ client, from the file the loader staged next to this one: slinky-engine.dll on Windows,
+    // libslinky-engine.so on Linux. Both are what 1.7.10 runs; the jars stay the path for 1.8.9.
     static InjectionStatus LoadNativeEngine(HMODULE hModule, const MinecraftInfo& mcInfo);
-#endif
 };
 
 } // namespace SlinkyNative

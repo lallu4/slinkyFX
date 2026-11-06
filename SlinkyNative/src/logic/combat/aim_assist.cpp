@@ -355,7 +355,7 @@ extern "C" void aim_assist_tick(Hook *hook) {
     Vec3 eye, aim;
     Rot rot;
     double range;
-    unsigned char far;
+    unsigned char far = 0;   // written by the test below on every entity it accepts; see the read after the loop
     struct { float fov, hp; int hurt; unsigned tie; } s;
     if (ctx->in_game != 1 || !ctx->player)
         goto clear;

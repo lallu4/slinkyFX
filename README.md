@@ -5,7 +5,7 @@
 <h1 align="center">slinkyFX</h1>
 
 <p align="center">
-  A ghost client for Minecraft 1.8.9.
+  A ghost client for Minecraft 1.8.9 and 1.7.10.
 </p>
 
 ---
@@ -30,43 +30,75 @@ path reports it.
 
 ## Supported clients
 
-| Client | Minecraft 1.8.9 | Minecraft 1.7.10 |
-|---|---|---|
-| Vanilla (Mojang launcher) | Yes | Yes (Windows) |
-| Forge | Yes | Yes (Windows) |
-| Lunar Client | Yes | Yes (Windows) |
-| Badlion Client | Yes | Yes (Windows) |
+Four clients, two Minecraft versions, two operating systems. Nothing outside
+that list is supported, tested or claimed - other launchers, other versions,
+other mod loaders.
 
 ### Full compatibility matrix
 
-| Client | Windows 1.8.9 | Windows 1.7.10 | Linux 1.8.9 | Linux 1.7.10 |
-|---|---|---|---|---|
-| Vanilla | Yes | Yes | Yes | Not supported |
-| Forge | Yes | Yes | Yes | Not supported |
-| Lunar Client | Yes | Yes | Yes | Not supported |
-| Badlion Client | Yes | Yes | Yes | Not supported |
+**Windows 10 / 11, x64**
+
+| Client | 1.8.9 | 1.7.10 |
+|---|---|---|
+| Vanilla | Yes | Yes |
+| Forge | Yes | Yes |
+| Badlion Client | Yes | Yes |
+| Lunar Client | Yes | Yes |
+
+**Linux x86_64 - Arch, Debian / Ubuntu, Fedora**
+
+| Client | 1.8.9 | 1.7.10 |
+|---|---|---|
+| Vanilla | Yes | Yes |
+| Forge | Yes | Yes |
+| Badlion Client | Yes | Yes |
+| Lunar Client | Yes | Yes |
+
+Every cell in both tables runs the same engine and the same modules; what
+differs is how it gets into the game. The Linux 1.8.9 column has been shipping
+and in use since 1.4.0. The Linux 1.7.10 column is new in 1.5.0: 1.7.10 now runs
+the same C++ client on Linux as on Windows, as `libslinky-engine.so`, and this
+is the release that first carries that file.
 
 The native layer is built from `SlinkyNative/`. On Windows it produces the
 slinkyFX native engine (`slinky-native.dll`) and hooks the game directly. On
-Linux it produces the legacy JNI/JVMTI payload library (`libslinky-native.so`)
-with the embedded Java payload jars. The engine detects the naming scheme in use
-(official/notch, SRG for Forge, named for MCP/dev environments, or legacy
-1.7.10). Check `slinky-native.log` in the loader's temp folder if you want to see
-which mapping was chosen; the log prints the detected version and namespace.
+Linux it produces a small bootstrap (`libslinky-native.so`) that carries the
+Java payload jars: 1.8.9 runs those jars, 1.7.10 loads the C++ engine beside
+it. The engine detects the naming scheme in use (official/notch, SRG for Forge,
+named for MCP/dev environments, or legacy 1.7.10). Check `slinky-native.log` in
+the loader's temp folder if you want to see which mapping was chosen; the log
+prints the detected version and namespace.
 
 ## Supported platforms
 
 | Platform | Display stack | Status |
 |---|---|---|
 | Windows 10 / 11 (x64) | Win32 | Supported |
-| Linux (x86_64) Arch / Debian / Ubuntu / Fedora | Wayland (native) | Supported |
-| Linux (x86_64) Arch / Debian / Ubuntu / Fedora | X11 / XWayland | Supported |
+| Arch Linux (x86_64) | Wayland (native) | Supported |
+| Arch Linux (x86_64) | X11 / XWayland | Supported |
+| Debian 11+, Ubuntu 20.04+ (x86_64) | Wayland (native) | Supported |
+| Debian 11+, Ubuntu 20.04+ (x86_64) | X11 / XWayland | Supported |
+| Fedora (x86_64) | Wayland (native) | Supported |
+| Fedora (x86_64) | X11 / XWayland | Supported |
 
-On Linux the game is located through `/proc` first, so a Wayland session needs
-no X11 tooling. X11 support is optional and soft: when the X11 libraries are
-present the loader can also match a window title, but the `/proc` scan works on
-its own. Install the X11 development headers only if your distribution does not
-already provide them.
+Three things about those Linux rows, none of them a limitation of slinkyFX:
+
+- The game is located through `/proc` first, so a Wayland session needs no X11
+  tooling. X11 support is optional and soft: when the X11 libraries are present
+  the loader can also match a window title, but the `/proc` scan works on its
+  own. Install the X11 development headers only if your distribution does not
+  already provide them.
+
+- A 1.7.10 game runs on LWJGL 2, and LWJGL 2 has no Wayland backend. On a
+  Wayland session it is therefore served by XWayland, which is what the
+  "X11 / XWayland" row covers; slinkyFX does not care which of the two the game
+  came in through.
+
+- The `libslinky-engine.so` that a release ships is built so that one file
+  serves every row above: it needs nothing newer than glibc 2.29, which covers
+  Debian 11 and later, Ubuntu 20.04 and later, and every current Fedora and
+  Arch. Building it on your own machine instead is fine and always has been - a
+  source build links the glibc it is standing on, and stays on that machine.
 
 ## Building
 
@@ -118,14 +150,41 @@ sudo pacman -S base-devel cmake libx11               # Arch
 ./build.sh
 ```
 
-The build produces `build/bin/slinky-loader` and `build/bin/libslinky-native.so`.
-Keep them in the same folder.
+The build produces `build/bin/slinky-loader` and `build/bin/libslinky-native.so`
+and copies both to `dist/`. Keep them in the same folder.
+
+That pair is the whole of 1.8.9. For 1.7.10 the same run also produces
+`libslinky-engine.so`, the C++ client, because it is the same engine Windows
+ships, built with your machine's clang instead of the bundled one:
+
+```sh
+sudo apt install clang lld llvm python3              # Debian / Ubuntu
+sudo dnf install clang lld llvm python3              # Fedora
+sudo pacman -S clang lld llvm python                 # Arch
+```
+
+Without them `build.sh` still finishes and still gives you a working 1.8.9
+client; it says what it skipped, and `tools/build-linux-engine.sh` on its own
+prints the same install lines. `./build.sh -Clean` throws `build/` away first.
+
+The engine is deliberately clang-only: its warning set and the alignment check
+that runs on the finished file are clang's, and it is the compiler the engine
+was written and verified against.
+
+Everything above is also what a *release* build does, and the release file is
+cross-built from Windows with `tools/setup-linux-sysroot.sh` followed by
+`tools/build-linux-engine.sh`, which is how one `libslinky-engine.so` is made to
+carry glibc 2.29 and serve every distribution in the matrix.
+`tools/check-linux-bootstrap.sh` compiles the loader and the bootstrap for
+x86_64 Linux from Windows, so a mistake in that code is caught before it becomes
+somebody else's build failure.
 
 ### Cross-platform helper
 
 `build.sh` works under Git Bash, MSYS2 and Cygwin on Windows. It configures,
-builds, runs the export check when Python is available, and copies the pair into
-`dist/`:
+builds, runs the export and constant-alignment checks when Python is available,
+and copies what it built into `dist/`: two files on Windows, and on Linux two
+for 1.8.9 or three when the 1.7.10 engine was also built.
 
 ```sh
 ./build.sh          # configure + build + copy to dist/
@@ -138,12 +197,17 @@ Start Minecraft first, then run the loader:
 
 - Windows: double-click `slinky-loader.exe` (or run it from a terminal).
 - Linux: run `./slinky-loader` from the folder that contains
-  `libslinky-native.so`.
+  `libslinky-native.so` (and `libslinky-engine.so`, for a 1.7.10 game).
 
 The loader waits for the game, injects, and prints
 `Injected successfully. Loader will close in 5s.` before it exits. If anything
 fails you get the same block with `Failed to inject.` and the reason on the
 license line, followed by the same countdown.
+
+On Linux, a 1.7.10 game that is already running slinkyFX has to be unloaded from
+inside the game (the unload key) before the loader will inject it again; the
+loader says so instead of pulling the library out from under a running client.
+Once it is unloaded, injecting again works.
 
 Open the in-game GUI with the key bind the client registers. It appears in
 Minecraft's Controls screen and can be changed there.

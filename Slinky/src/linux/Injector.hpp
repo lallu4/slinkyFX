@@ -8,9 +8,9 @@ namespace Slinky {
 
 class Injector {
 public:
-    // Locate libslinky-native.so next to the executable, copy it into a
-    // private temp dir (so the game process can dlopen it), and return the
-    // copy's path plus the log path the payload will write to.
+    // Locate libslinky-native.so next to the executable, copy it - and libslinky-engine.so, the C++ client a
+    // 1.7.10 game loads out of the same folder, when it is there - into a private temp dir (so the game process
+    // can dlopen them), and return the copy's path plus the log path the payload will write to.
     static bool ExtractBundledSo(std::string& outSoPath, std::string& outLogPath);
 
     // Load libslinky-native.so into the target with a remote dlopen().

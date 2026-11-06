@@ -181,12 +181,16 @@ extern "C" void auto_pot_on_input(InHook *hook) {
 }
 
 extern "C" void auto_pot_on_toggle(EvHook *hook) {
+    // Declared before the first goto: MSVC lets a jump step over an initialisation, the SysV C++ front end
+    // makes it an error, and the same file has to build for both.
+    Ctx *ctx = hook->ctx;
+    float health;
+    int n;
     if (hook->ev != auto_pot_module_descriptor)
         goto end;
     if (hook->on != 1) {
         // stage 1..3: the hotbar may already be on the potion slot - the tick handler is gone
         // once the module is disabled, so put it back here.
-        Ctx *ctx = hook->ctx;
         unsigned st = auto_pot_stage;
         if (ctx->player && st >= 1 && st <= 3 && auto_pot_potion_slot != auto_pot_original_slot)
             java_set_inventory_player_current_item(ctx->jvm, java_get_entity_player_inventory(ctx->jvm, ctx->player), auto_pot_original_slot);
@@ -197,11 +201,10 @@ extern "C" void auto_pot_on_toggle(EvHook *hook) {
         auto_pot_step_delay = 0.0f;
         goto end;
     }
-    Ctx *ctx = hook->ctx;
     if (ctx->in_game != 1 || !ctx->player)
         goto end;
-    float health = java_call_entity_living_base_get_health(ctx->jvm, ctx->player);
-    int n = (int)(((double)(java_call_entity_living_base_get_max_health(ctx->jvm, ctx->player) - health) + offset_0_5_in_auto_pot) * factor_0_125);
+    health = java_call_entity_living_base_get_health(ctx->jvm, ctx->player);
+    n = (int)(((double)(java_call_entity_living_base_get_max_health(ctx->jvm, ctx->player) - health) + offset_0_5_in_auto_pot) * factor_0_125);
     if (n == 0) {
         n = 1;
         if (auto_pot_prevent_waste_value == 1) {
