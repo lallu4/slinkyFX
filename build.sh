@@ -2,7 +2,7 @@
 # slinkyFX - single cross-platform build script.
 #
 #   Windows (Git Bash / MSYS2 / Cygwin): slinky-loader.exe + slinky-native.dll
-#   Linux (x86_64):                      slinky-loader + libslinky-native.so (+ libslinky-engine.so for 1.7.10)
+#   Linux (x86_64):                      slinky-loader + libslinky-native.so + libslinky-engine.so
 #
 # Everything lands in ./dist. Keep the files in the same folder when running the loader.
 #
@@ -16,8 +16,9 @@
 #        through it and fails the build when a 16-byte constant would be read misaligned.
 #        The module export ledger is optional and skipped when its script is not in the tree.
 #
-# On Linux, ./build.sh additionally produces build/linux-engine/libslinky-engine.so - the 1.7.10 client -
-# when clang, lld and the LLVM tools are installed. It is built with the machine's own toolchain.
+# On Linux, ./build.sh additionally produces build/linux-engine/libslinky-engine.so - the client both Minecraft
+# versions run - with the machine's own toolchain. clang, lld and the LLVM tools are required for that: there is
+# no second client to fall back to.
 #
 # The same file can be cross-built from Windows instead, which is how one .so is made to serve every
 # distribution (it links against an old glibc to keep the requirement low):
@@ -147,7 +148,7 @@ PY
     echo "[1/4] Configuring..."
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-    echo "[2/4] Building the loader and libslinky-native.so (the 1.8.9 client)..."
+    echo "[2/4] Building the loader and libslinky-native.so (the bootstrap that starts the engine)..."
     cmake --build build -j"$(nproc)"
 
     for f in build/bin/slinky-loader build/bin/libslinky-native.so; do
@@ -157,34 +158,31 @@ PY
         fi
     done
 
-    # 1.7.10 runs the C++ engine, and on this platform it is a third file: libslinky-engine.so, which the
-    # bootstrap dlopens from the folder the loader staged it in. It needs clang, lld and the LLVM tools rather
-    # than the g++ that builds everything else above - the engine was written and verified against clang, its
-    # warning set is clang's, and the alignment check below reads clang's disassembly - so it is a separate
-    # step that a 1.8.9 player without those packages can walk straight past.
-    echo "[3/4] Building libslinky-engine.so (the 1.7.10 client)..."
+    # Both Minecraft versions on this platform run the C++ engine, and it is a third file: libslinky-engine.so,
+    # which the bootstrap dlopens from the folder the loader staged it in. It needs clang, lld and the LLVM tools
+    # rather than the g++ that builds everything else above - the engine was written and verified against clang,
+    # its warning set is clang's, and the alignment check below reads clang's disassembly. There is no second
+    # client to fall back to any more: the Java payload that used to be Linux 1.8.9 is gone, so a machine that
+    # cannot build the engine cannot build slinkyFX, and says so here rather than half-way through a game.
+    echo "[3/4] Building libslinky-engine.so (the engine both versions run)..."
     engine_tools=""
     for t in clang clang++ ld.lld llvm-readelf llvm-objdump llvm-nm; do
         command -v "$t" >/dev/null 2>&1 || engine_tools="$engine_tools $t"
     done
-    ENGINE_BUILT=0
     if [[ -n $engine_tools ]]; then
-        echo "       skipped - missing:$engine_tools"
-        echo "       1.8.9 is complete without it; for 1.7.10 install them and run tools/build-linux-engine.sh"
-    else
-        bash tools/build-linux-engine.sh || {
-            echo "[X] the 1.7.10 engine failed to build above" >&2; exit 1; }
-        ENGINE_BUILT=1
+        echo "[X] the engine needs clang, lld and the LLVM tools; missing:$engine_tools" >&2
+        echo "    sudo apt install clang lld llvm python3   (Debian / Ubuntu)" >&2
+        echo "    sudo dnf install clang lld llvm python3   (Fedora)" >&2
+        echo "    sudo pacman -S clang lld llvm python      (Arch)" >&2
+        exit 1
     fi
+    bash tools/build-linux-engine.sh || {
+        echo "[X] the engine failed to build above" >&2; exit 1; }
 
     echo "[4/4] Copying to dist/ (keep the files in the same folder)"
     mkdir -p dist
     cp -f build/bin/slinky-loader build/bin/libslinky-native.so dist/
-    if [[ $ENGINE_BUILT -eq 1 ]]; then
-        cp -f build/linux-engine/libslinky-engine.so dist/
-        echo "[OK] dist/slinky-loader + dist/libslinky-native.so + dist/libslinky-engine.so"
-    else
-        echo "[OK] dist/slinky-loader + dist/libslinky-native.so   (1.8.9 only)"
-    fi
+    cp -f build/linux-engine/libslinky-engine.so dist/
+    echo "[OK] dist/slinky-loader + dist/libslinky-native.so + dist/libslinky-engine.so"
     ;;
 esac

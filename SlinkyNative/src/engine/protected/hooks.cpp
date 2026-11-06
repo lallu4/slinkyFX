@@ -36,6 +36,8 @@ FN(void, release_tracked_owner, ());
 // New code (the original does this inside its virtualised first-call block): load the GL entry points, create the
 // NanoVG context the GUI draws with, and the window object (GuiWindow, created below) that carries it and the font ids.
 extern "C" int slinky_load_gl(void *(*get)(const char *name));
+extern "C" int slinky_gl_missing_essential(const char **first);   // src/platform/gl_slots.cpp
+extern "C" const char *slinky_gl_version_string(void);            // the game's own GL_VERSION, or NULL
 extern "C" void *nvgCreateGL3(int flags);
 enum { NVG_ANTIALIAS = 1, NVG_STENCIL_STROKES = 2 };   // inferred: the usual flags; the shader is the EDGE_AA variant
 struct GuiWindow { void *ig; double t; int w, h; float sw, sh, scale; int padding_24; void *fb; float clear[4];
@@ -62,13 +64,25 @@ static void gui_tabs_init() {
 static void gui_init() {
     gui_tabs_init();
     slinky_load_gl(slinky_gl_get_proc);
+    // What the driver handed over and what its context reports, because an overlay that draws nothing and an
+    // overlay that draws garbage look identical from the outside, and this is the one line that tells them apart.
+    const char *missing_name = 0;
+    int missing = slinky_gl_missing_essential(&missing_name);
+    const char *gl_version = slinky_gl_version_string();
+    if (missing)
+        slinky_logf("gui: %d of the OpenGL calls the overlay needs are missing, first %s (context \"%s\")",
+                    missing, missing_name ? missing_name : "?", gl_version ? gl_version : "?");
+    else
+        slinky_logf("gui: context \"%s\"", gl_version ? gl_version : "?");
     GuiWindow *w = (GuiWindow *)libc_calloc(1, sizeof(GuiWindow));
     if (!w) return;
     w->ig = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
     w->scale = 1.0f;
     if (!w->ig || find_glfw_entrypoint((void **)w, 0, "Inter Medium", hooks_embedded_truetype_inter_medium_inter, 694511) ||
         find_glfw_entrypoint((void **)w, 1, "Inter Bold", hooks_embedded_truetype_inter_medium_inter_second, 715203)) {
-        slinky_logf("GUI setup failed");   // the GUI stays off (frame_render_target is checked before every use)
+        // The GUI stays off (frame_render_target is checked before every use), so say which half refused.
+        slinky_logf(!w->ig ? "GUI setup failed: NanoVG refused to draw with this context"
+                           : "GUI setup failed: a font was refused");
         return;
     }
     // GUI icons: one 64x64 sheet of 20px tiles, used by draw_texture (profile load/save/folder/delete and
@@ -83,6 +97,7 @@ static void gui_init() {
         w->th = 64.0f;
     }
     frame_render_target = w;
+    slinky_logf("gui: overlay ready");
 }
 
 // ---- undo gui_init (unload; like gui_init it needs the render thread's current OpenGL context) ----
@@ -100,13 +115,28 @@ extern "C" void gui_render_target_destroy() {
     libc_free(w);
 }
 
+// ---- the one-time set-up, asked for by whichever game hook the render thread reaches first ----
+// getMouseOver was the only caller. Clients that ship their own patched Minecraft.runTick can lose that call
+// site - the install then still reports the other classes as hooked and the game runs, but nothing here ever
+// starts: the OpenGL entry points stay unloaded, the menu never comes up, and the world keeps asking for a
+// clear it cannot get (see render_world_events). updateEntities and Display.update are in the same loop and
+// survive those patches, so all three hooks ask and the flag makes the set-up happen exactly once.
+extern "C" void hooks_first_frame_init(void) {
+    if (__atomic_exchange_n(&hooks_one_time_initialisation_done, 1, __ATOMIC_SEQ_CST) == 0) gui_init();
+}
+
 // ---- native hook of EntityRenderer.getMouseOver(partialTicks) ----
 extern "C" void hook_get_mouse_over(JNIEnv *env, jclass, void *renderer, float partial_ticks) {
     if (java_natives_frame_client_shutting_down_natives_check) return;
+    static int mouse_over_logged;
+    if (!mouse_over_logged) {
+        mouse_over_logged = 1;
+        slinky_logf("frame: first get_mouse_over partial=%f", partial_ticks);
+    }
     Jvm jvm = {java_natives_world_cached_jni_ids, env};
     call_get_mouse_over(&jvm, renderer, partial_ticks);   // vanilla ray trace first
 
-    if (__atomic_exchange_n(&hooks_one_time_initialisation_done, 1, __ATOMIC_SEQ_CST) == 0) gui_init();   // first frame: the GL context is current
+    hooks_first_frame_init();   // first frame: the GL context is current
 
     void *minecraft = get_minecraft(&jvm);
     Pair16 handler = init_slinkychannelhandler_class_constructor;

@@ -35,6 +35,7 @@ FN(double, time_now, ());                 // high-resolution seconds
 FN(void, set_tab_animation, (void *state, double v));   // stores a double at state + 0x498
 FN(unsigned char, is_in_game, (void *jvm, void *object));
 FN(void, java_set_minecraft_in_game_focus, (void *jvm, void *object, int value));
+FN(void *, java_get_minecraft_current_screen, (void *jvm, void *object));
 FN(void *, get_local_player, (void *jvm, void *object));
 FN(void, close_popup_now, (void *state));
 FN(void, reset_drag_state, (void *state));
@@ -62,6 +63,14 @@ static void give_cursor_back(void *jvm, void *minecraft) {
     if (!gui_owns_cursor)
         return;
     gui_owns_cursor = 0;
+    // A screen of the game's own is drawn with the system cursor and keeps the camera still. Handing the mouse
+    // back to the world over one left the player a menu they could see but not click and a view that turned
+    // while they aimed at nothing - so the screen keeps the cursor, and because the focus flag goes to 0 here,
+    // is_in_game() says no to the grab the close path asks for next.
+    if (java_get_minecraft_current_screen(jvm, minecraft)) {
+        java_set_minecraft_in_game_focus(jvm, minecraft, 0);
+        return;
+    }
     // a world can have loaded while the menu was open with no focus to save; that one still ends focused
     java_set_minecraft_in_game_focus(jvm, minecraft, gui_focus_before_open || get_local_player(jvm, minecraft) != 0);
 }

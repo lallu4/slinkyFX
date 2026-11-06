@@ -1038,21 +1038,27 @@ bool Injector::ExtractBundledSo(std::string& outSoPath, std::string& outLogPath)
 
     if (!StageFile(source, outSoPath)) return false;
 
-    // 1.7.10 runs the C++ client, and that is a second file: the bootstrap dlopens libslinky-engine.so from
-    // the folder it was loaded from. It is not required here, because 1.8.9 never asks for it; a 1.7.10 game
-    // without it is what the bootstrap's own FINAL STATUS: FAILED is for.
+    // The client is a second file: the bootstrap dlopens libslinky-engine.so from the folder it was loaded
+    // from, and both Minecraft versions are played through that image. There is nothing to fall back to any more
+    // - the Java payload that used to live inside the bootstrap is gone - so a folder that has the bootstrap and
+    // not the engine is an incomplete install, and saying so here is far clearer than the bootstrap's own
+    // "cannot open shared object file" several seconds later.
     std::string engineSource = exeDir + "/libslinky-engine.so";
-    if (access(engineSource.c_str(), R_OK) == 0) {
-        if (!StageFile(engineSource, tmpDir + "/libslinky-engine.so")) return false;
+    if (access(engineSource.c_str(), R_OK) != 0) {
+        char reason[512];
+        snprintf(reason, sizeof(reason),
+                 "libslinky-engine.so is not next to the loader (%s).", exeDir.c_str());
+        ConsoleUI::PrintFailure(reason);
+        return false;
     }
-    return true;
+    return StageFile(engineSource, tmpDir + "/libslinky-engine.so");
 }
 
 bool Injector::InjectDll(pid_t pid, const std::string& soPath) {
     std::string dir = Dirname(soPath);
 
     // If the loader was started as root anyway, hand the staging dir over to
-    // the game's user so the payload can write its log file there.
+    // the game's user so the engine can write its log file there.
     if (geteuid() == 0) {
         struct stat pst;
         if (stat(("/proc/" + std::to_string((long)pid)).c_str(), &pst) == 0) {
@@ -1078,7 +1084,7 @@ bool Injector::InjectDll(pid_t pid, const std::string& soPath) {
     // A previous instance must be unloaded first (Windows does the same
     // before every injection).  Fresh games skip this entirely.
     if (ProcessUtil::IsModuleLoaded(pid, "slinky-native")) {
-        // The 1.7.10 client is a second image, and while it is mapped the bootstrap can be holding the thread
+        // The client is a second image, and while it is mapped the bootstrap can be holding the thread
         // that is waiting to unmap it. Closing the file that thread is standing in - which is exactly what the
         // dlclose below does - takes the game down with it, so a client that is still running has to be stopped
         // from inside the game. A client that was already unloaded is not caught here: unmapping the engine is
@@ -1181,14 +1187,14 @@ bool Injector::MonitorStartup(pid_t pid, const std::string& logPath) {
                 ConsoleUI::PrintFailure("Already running. Unload from menu first.");
                 return false;
             } else {
-                ConsoleUI::PrintFailure("Minecraft could not start the payload.");
+                ConsoleUI::PrintFailure("Minecraft could not start the client.");
                 return false;
             }
         }
         Sleep(150);
     }
 
-    ConsoleUI::PrintFailure("Library loaded but the payload never confirmed startup.");
+    ConsoleUI::PrintFailure("Library loaded but the client never confirmed startup.");
     return false;
 }
 

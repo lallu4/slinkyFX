@@ -7,9 +7,8 @@ recognition for it belong to Skid Solutions.
 The MIT grant below applies to the parts of this repository that slinkyFX wrote: the
 loader (Slinky/), the native engine (SlinkyNative/src/engine/) and the build tooling and
 documentation. It does not apply to, and this project does not claim to license, the
-recovered slinky code — including the compiled payload in SlinkyNative/payload/, which
-carries no license of its own. Nothing here grants any right to slinky or to its code.
-Credit for the recovered foundation: Skid Solutions.
+recovered slinky code it is built on, which carries no license of its own. Nothing here
+grants any right to slinky or to its code. Credit for the recovered foundation: Skid Solutions.
 
 ---
 

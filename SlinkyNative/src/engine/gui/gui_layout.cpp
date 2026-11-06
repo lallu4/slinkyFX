@@ -1,6 +1,8 @@
 // 0x10000: GUI window helpers
 #include "slinky/engine.h"
 #include "slinky/gui_state.h"
+#include "slinky/gl_slots.h"      // the GL entry points the passes below put back the way they found them
+#include "slinky/platform.h"      // slinky_logf
 FN(void, nvg_FontFaceId, (void *imgui, unsigned col));
 struct GCol { void *imgui; char padding_08[0x38]; unsigned col[1]; };
 extern "C" void set_draw_color(GCol *g, unsigned i) {
@@ -355,7 +357,10 @@ extern "C" bool handle_gui_input(GuiState *gui, InEv *in) {
 }
 
 // ---- GUI render target: ImGui frame into an offscreen framebuffer scaled by `scale` ----
-struct FBuf { char padding_00[0x14]; int tex; };
+// FBuf mirrors NVGLUframebuffer (third_party/nanovg/src/nanovg_gl_utils.h): context pointer, fbo, rbo, texture,
+// image. The blit at the bottom of this file wants the last field, NanoVG's own image handle, because
+// nvgImagePattern takes a handle and not a GL texture name - that is why the padding runs to 0x14.
+struct FBuf { void *ctx; unsigned fbo, rbo, texture; int image; };
 struct Rend { void *ig; double t; int w, h; float sw, sh; float scale; int padding_24; FBuf *fb; float clear[4]; };
 FN(void, nvg_wrap_delete_framebuffer, (FBuf *fb));                                    // destroy
 FN(FBuf *, nvglu_create_framebuffer, (void *nvg, int w, int h, int flags));         // create
@@ -363,6 +368,132 @@ FN(void, nvg_wrap_bind_framebuffer, (FBuf *fb));                                
 FN(void, nvg_BeginFrame, (void *nvg, float w, float h, float dpi));       // begin frame
 FN(void, nvg_EndFrame, (void *nvg));                                    // end frame
 FN(void, nvg_Scale, (void *nvg, float x, float y));
+
+// ---- what the attribute stack does not reach ----
+// glPushAttrib(GL_ALL_ATTRIB_BITS) saves attribute groups - blending, depth, scissor, clear colour, viewport -
+// and nothing else. Selections are not attributes: the vertex array object, the current program and the buffer,
+// framebuffer, renderbuffer and texture bindings all stay where the last caller left them, and NanoVG's GL3
+// backend moves every one of them while it draws the menu. 1.8.9 builds its world with the fixed-function
+// pipeline, which reads those same selections back as its own, so a pass through the menu can leave the chunks
+// assembled from the menu's buffers - geometry at the wrong scale, doubled, or smeared over the frames before it.
+struct Selection {
+    GLint vao, program, arrayBuffer, elementArrayBuffer, uniformBuffer, pixelUnpackBuffer;
+    GLint framebuffer, renderbuffer, activeTexture, texture2D;
+};
+// Several of these queries postdate the 2.1 context the game asks for, and an unknown pname is both an error and
+// an untouched value, so each is probed once and dropped for good when the probe fails. A field left at -1 is
+// never written back: a driver that cannot report a selection is not handed a wrong one either.
+static unsigned char g_query_state[10];   // 0 unprobed, 1 works, 2 not supported here
+static void query_field(int index, GLenum pname, GLint *out) {
+    PFNGLGETINTEGERVPROC get = (PFNGLGETINTEGERVPROC)pGlGetIntegerv;
+    PFNGLGETERRORPROC err = (PFNGLGETERRORPROC)pGlGetError;
+    if (!get || g_query_state[index] == 2) { *out = -1; return; }
+    if (g_query_state[index] == 0) {
+        *out = -1;
+        if (err) while (err() != GL_NO_ERROR) {}
+        get(pname, out);
+        if (err && err() != GL_NO_ERROR) { g_query_state[index] = 2; *out = -1; return; }
+        g_query_state[index] = 1;
+        return;
+    }
+    get(pname, out);
+}
+static void selection_read(Selection *s) {
+    query_field(0, GL_VERTEX_ARRAY_BINDING, &s->vao);
+    query_field(1, GL_CURRENT_PROGRAM, &s->program);
+    query_field(2, GL_ARRAY_BUFFER_BINDING, &s->arrayBuffer);
+    query_field(3, GL_ELEMENT_ARRAY_BUFFER_BINDING, &s->elementArrayBuffer);
+    query_field(4, GL_UNIFORM_BUFFER_BINDING, &s->uniformBuffer);
+    query_field(5, GL_PIXEL_UNPACK_BUFFER_BINDING, &s->pixelUnpackBuffer);
+    query_field(6, GL_FRAMEBUFFER_BINDING, &s->framebuffer);
+    query_field(7, GL_RENDERBUFFER_BINDING, &s->renderbuffer);
+    query_field(8, GL_ACTIVE_TEXTURE, &s->activeTexture);
+    query_field(9, GL_TEXTURE_BINDING_2D, &s->texture2D);
+}
+// The element array binding lives inside the vertex array object, so the object goes back first and its buffer
+// after it; the rest is context state and their order is free.
+static void selection_write(const Selection *s) {
+    PFNGLBINDVERTEXARRAYPROC bind_vao = (PFNGLBINDVERTEXARRAYPROC)pGlBindVertexArray;
+    PFNGLBINDBUFFERPROC bind_buffer = (PFNGLBINDBUFFERPROC)pGlBindBuffer;
+    PFNGLUSEPROGRAMPROC use_program = (PFNGLUSEPROGRAMPROC)pGlUseProgram;
+    PFNGLBINDFRAMEBUFFERPROC bind_fbo = (PFNGLBINDFRAMEBUFFERPROC)pGlBindFramebuffer;
+    PFNGLBINDRENDERBUFFERPROC bind_rbo = (PFNGLBINDRENDERBUFFERPROC)pGlBindRenderbuffer;
+    PFNGLACTIVETEXTUREPROC use_unit = (PFNGLACTIVETEXTUREPROC)pGlActiveTexture;
+    PFNGLBINDTEXTUREPROC bind_tex = (PFNGLBINDTEXTUREPROC)pGlBindTexture;
+    if (bind_vao && s->vao >= 0) bind_vao(s->vao);
+    if (bind_buffer) {
+        if (s->elementArrayBuffer >= 0) bind_buffer(GL_ELEMENT_ARRAY_BUFFER, s->elementArrayBuffer);
+        if (s->arrayBuffer >= 0) bind_buffer(GL_ARRAY_BUFFER, s->arrayBuffer);
+        if (s->uniformBuffer >= 0) bind_buffer(GL_UNIFORM_BUFFER, s->uniformBuffer);
+        if (s->pixelUnpackBuffer >= 0) bind_buffer(GL_PIXEL_UNPACK_BUFFER, s->pixelUnpackBuffer);
+    }
+    if (use_program && s->program >= 0) use_program(s->program);
+    if (bind_fbo && s->framebuffer >= 0) bind_fbo(GL_FRAMEBUFFER, s->framebuffer);
+    if (bind_rbo && s->renderbuffer >= 0) bind_rbo(GL_RENDERBUFFER, s->renderbuffer);
+    if (use_unit && s->activeTexture >= 0) use_unit(s->activeTexture);
+    if (bind_tex && s->texture2D >= 0) bind_tex(GL_TEXTURE_2D, s->texture2D);
+}
+
+// ---- the pass that could not be run ----
+// Drawing into a framebuffer the driver refused paints whatever the sampled texture happens to hold, which is
+// what a player sees as old frames leaking over the world. So the passes are watched while watching is still
+// cheap - the failure shows on the first frame that moves the mouse - and the overlay takes itself out instead
+// of going on damaging the picture: no overlay is a bad hour, a corrupted client is a worse one.
+static unsigned overlay_off;         // 1 once a pass has been seen to fail or the render target to be unusable
+static int strikes;
+static int error_frames_left = 30;   // glGetError flushes on some drivers, so it is not a permanent per-frame cost
+
+static unsigned errors_drained(void) {
+    PFNGLGETERRORPROC err = (PFNGLGETERRORPROC)pGlGetError;
+    if (!err) return 0;
+    unsigned first = 0;
+    for (int i = 0; i < 16; i++) {
+        unsigned e = err();
+        if (e == GL_NO_ERROR) break;
+        if (!first) first = e;
+    }
+    return first;
+}
+static void overlay_failed(const char *where, unsigned code) {
+    slinky_logf("overlay: GL error 0x%x in %s", code, where);
+    if (code == GL_INVALID_FRAMEBUFFER_OPERATION || ++strikes >= 4) {
+        overlay_off = 1;
+        slinky_logf("overlay: switched off, the game is drawn without it");
+    }
+}
+// Both passes are entered and left from the frame (begin_frame_framebuffer/clear_frame for the one that paints
+// into the target, begin_frame/end_frame for the one that puts it over the screen), so each keeps its own saved
+// selection and neither can be left half finished by the other.
+struct Pass { Selection sel; unsigned saved, drawing; };
+static Pass fb_pass, screen_pass;
+static void pass_open(Pass *p, Rend *renderer) {
+    p->saved = 0;
+    p->drawing = 0;
+    if (overlay_off) return;
+    if (!renderer->ig || !renderer->fb) {
+        overlay_off = 1;
+        slinky_logf("overlay: switched off, no render target to draw");
+        return;
+    }
+    selection_read(&p->sel);
+    p->saved = 1;
+    if (error_frames_left > 0) errors_drained();   // anything the game left behind is not charged to this pass
+    p->drawing = 1;
+}
+static void pass_close(Pass *p, const char *where) {
+    if (p->drawing && error_frames_left > 0) {
+        error_frames_left--;
+        unsigned code = errors_drained();
+        if (code) overlay_failed(where, code);
+    }
+    if (p->saved) selection_write(&p->sel);
+    p->saved = 0;
+    p->drawing = 0;
+}
+// The frame checks this before it calls anything else here: once the overlay is out, the modules must not be
+// handed a NanoVG context either, or their draw calls queue geometry that no frame will ever flush.
+extern "C" bool overlay_usable(void) { return !overlay_off; }
+
 extern "C" void (**const ptr_to_pGlGetFloatv)(unsigned pname, float *out);   // glGetFloatv
 extern "C" void (**const ptr_to_pGlClearColor)(float r, float g, float b, float a);   // glClearColor
 extern "C" void (**const ptr_to_pGlClear)(unsigned mask);   // glClear
@@ -374,19 +505,29 @@ extern "C" void set_render_scale(Rend *renderer, float scale) {
 }
 // (re)create the framebuffer when the window size changed
 extern "C" bool resize_render_target(Rend *renderer, int w, int h) {
+    if (overlay_off) return false;   // nvgluCreateFramebuffer hands back NULL for an incomplete target too
     bool changed;
     if (w == renderer->w && h == renderer->h) {
         changed = false;
     } else {
+        Selection before;
+        selection_read(&before);      // creating one uploads a texture and leaves it selected on this unit
         if (renderer->fb) nvg_wrap_delete_framebuffer(renderer->fb);
         renderer->fb = nvglu_create_framebuffer(renderer->ig, w, h, 0);
+        selection_write(&before);
         changed = true;
+        if (!renderer->fb) {
+            overlay_off = 1;
+            slinky_logf("overlay: switched off, a %dx%d render target could not be made", w, h);
+        }
     }
     renderer->w = w;
     renderer->h = h;
     return changed;
 }
 extern "C" void begin_frame(Rend *renderer, double t) {
+    pass_open(&screen_pass, renderer);
+    if (!screen_pass.drawing) return;
     float fw = (float)renderer->w;
 
     void *nvg = renderer->ig;
@@ -398,6 +539,8 @@ extern "C" void begin_frame(Rend *renderer, double t) {
 }
 // begin a frame into the framebuffer (saves and clears the GL clear colour)
 extern "C" void begin_frame_framebuffer(Rend *renderer, double t) {
+    pass_open(&fb_pass, renderer);
+    if (!fb_pass.drawing) return;
     nvg_wrap_bind_framebuffer(renderer->fb);
     (*ptr_to_pGlGetFloatv)(0xc22, renderer->clear);   // GL_COLOR_CLEAR_VALUE
     (*ptr_to_pGlClearColor)(0.0f, 0.0f, 0.0f, 0.0f);
@@ -413,22 +556,29 @@ extern "C" void begin_frame_framebuffer(Rend *renderer, double t) {
 }
 // draw the framebuffer texture over the screen
 extern "C" void draw_framebuffer_texture_over_screen(Rend *renderer) {
+    if (!screen_pass.drawing) return;
     void *nvg = renderer->ig;
     float sw = renderer->sw, sh = renderer->sh;
 
-    Img g = nvg_image_pattern(nvg, 0.0f, 0.0f, sw, sh, 0, renderer->fb->tex, 1.0f);
+    Img g = nvg_image_pattern(nvg, 0.0f, 0.0f, sw, sh, 0, renderer->fb->image, 1.0f);
     nvg_BeginPath(nvg);
     nvg_Rect(nvg, 0.0f, 0.0f, renderer->sw, renderer->sh);
     nvg_FillPaint(nvg, g);
     nvg_Fill(nvg);
 }
-extern "C" void end_frame(Rend *renderer) { nvg_EndFrame(renderer->ig); }
+extern "C" void end_frame(Rend *renderer) {
+    if (screen_pass.drawing) nvg_EndFrame(renderer->ig);
+    pass_close(&screen_pass, "the frame blitted over the screen");
+}
 extern "C" void clear_frame(Rend *renderer) {
-    nvg_EndFrame(renderer->ig);
-    nvg_wrap_bind_framebuffer(0);
-    void (*cc)(float, float, float, float) = *ptr_to_pGlClearColor;
+    if (fb_pass.drawing) {
+        nvg_EndFrame(renderer->ig);
+        nvg_wrap_bind_framebuffer(0);
+        void (*cc)(float, float, float, float) = *ptr_to_pGlClearColor;
 
-    float c0 = renderer->clear[0], c1 = renderer->clear[1], c2 = renderer->clear[2], c3 = renderer->clear[3];
+        float c0 = renderer->clear[0], c1 = renderer->clear[1], c2 = renderer->clear[2], c3 = renderer->clear[3];
 
-    cc(c0, c1, c2, c3);
+        cc(c0, c1, c2, c3);
+    }
+    pass_close(&fb_pass, "the frame painted into the target");
 }

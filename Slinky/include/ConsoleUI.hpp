@@ -10,7 +10,7 @@ class ConsoleUI {
 public:
     // The header above the status block: SCANNING while the loader looks for
     // the game, INJECTING from the first injection step on, DONE once the
-    // payload is in, FAILED when injection did not complete.
+    // client is in, FAILED when injection did not complete.
     enum class Phase { Scanning, Injecting, Done, Failed };
 
     static void Initialize();

@@ -251,7 +251,7 @@ bool Injector::MonitorStartup(DWORD pid, const std::wstring& logPath) {
                     if (hProcess) CloseHandle(hProcess);
                     return false;
                 } else if (wcsstr(line, L"FINAL STATUS: FAILED")) {
-                    ConsoleUI::PrintFailure("Minecraft could not start the payload.");
+                    ConsoleUI::PrintFailure("Minecraft could not start the client.");
                     fclose(fp);
                     if (hProcess) CloseHandle(hProcess);
                     return false;
@@ -264,7 +264,7 @@ bool Injector::MonitorStartup(DWORD pid, const std::wstring& logPath) {
     }
 
     if (hProcess) CloseHandle(hProcess);
-    ConsoleUI::PrintFailure("DLL loaded but the payload never confirmed startup.");
+    ConsoleUI::PrintFailure("DLL loaded but the client never confirmed startup.");
     PrintLogTail(logPath);
     return false;
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(slinkyFX-main VERSION 1.2.0 LANGUAGES C CXX)
+project(slinkyFX-main VERSION 1.6.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,7 +15,7 @@ endif()
 
 add_subdirectory(Slinky)
 if(NOT WIN32)
-    # Linux: legacy JNI/JVMTI payload library (libslinky-native.so).
+    # Linux: the bootstrap that starts the native engine (libslinky-native.so).
     add_subdirectory(SlinkyNative)
     add_dependencies(Slinky SlinkyNative)
 endif()

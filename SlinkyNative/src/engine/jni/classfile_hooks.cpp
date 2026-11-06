@@ -73,6 +73,18 @@ extern "C" void java_set_minecraft_in_game_focus(Jvm *jvm, void *minecraft, int 
     JCALL(jvm, SetBooleanField, minecraft, ids->Minecraft_inGameHasFocus, (jboolean)(value != 0));
 }
 
+// The screen the game is showing right now (NULL = none, so the world itself has the mouse). Written from the
+// frame hook, which is the game's own thread and the only thread that ever sets it.
+extern "C" void *java_get_minecraft_current_screen(Jvm *jvm, void *minecraft) {
+    if (!minecraft) return 0;
+    return JCALLN(jvm, GetObjectField, minecraft, (jfieldID)ids->Minecraft_currentScreen);
+}
+
+extern "C" void java_set_minecraft_current_screen(Jvm *jvm, void *minecraft, void *screen) {
+    if (!minecraft) return;
+    JCALL(jvm, SetObjectField, minecraft, (jfieldID)ids->Minecraft_currentScreen, screen);
+}
+
 extern "C" jint java_get_minecraft_left_click_counter(Jvm *jvm, void *minecraft) {
     return JCALL(jvm, GetIntField, minecraft, ids->Minecraft_leftClickCounter);
 }

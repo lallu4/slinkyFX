@@ -737,3 +737,57 @@ extern "C" int slinky_load_gl(void *(*get)(const char *name)) {
         if (!(*s.slot = get(s.name))) missing++;
     return missing;
 }
+
+// ---- the holes that matter ----
+// A legacy context refuses most of the extension names above and the overlay does not care about them, so the
+// count alone says nothing. These are the entry points NanoVG's GL3 backend, the render passes and the matrix
+// restore cannot work without, and a hole in this list is the difference between a menu and a corrupted screen.
+struct Essential { void **slot; const char *name; };
+static const Essential essentials[] = {
+    {&pGlGetString, "glGetString"},                    {&pGlGetIntegerv, "glGetIntegerv"},
+    {&pGlGetFloatv, "glGetFloatv"},                    {&pGlGetError, "glGetError"},
+    {&pGlPushAttrib, "glPushAttrib"},                  {&pGlPopAttrib, "glPopAttrib"},
+    {&pGlEnable, "glEnable"},                          {&pGlDisable, "glDisable"},
+    {&pGlViewport, "glViewport"},                      {&pGlScissor, "glScissor"},
+    {&pGlBlendFunc, "glBlendFunc"},                    {&pGlBlendFuncSeparate, "glBlendFuncSeparate"},
+    {&pGlColorMask, "glColorMask"},                    {&pGlStencilMask, "glStencilMask"},
+    {&pGlClear, "glClear"},                            {&pGlClearColor, "glClearColor"},
+    {&pGlGenTextures, "glGenTextures"},                {&pGlBindTexture, "glBindTexture"},
+    {&pGlTexImage2D, "glTexImage2D"},                  {&pGlTexParameteri, "glTexParameteri"},
+    {&pGlActiveTexture, "glActiveTexture"},            {&pGlPixelStorei, "glPixelStorei"},
+    {&pGlGenBuffers, "glGenBuffers"},                  {&pGlBindBuffer, "glBindBuffer"},
+    {&pGlBufferData, "glBufferData"},                  {&pGlGenVertexArrays, "glGenVertexArrays"},
+    {&pGlBindVertexArray, "glBindVertexArray"},        {&pGlVertexAttribPointer, "glVertexAttribPointer"},
+    {&pGlEnableVertexAttribArray, "glEnableVertexAttribArray"},                                        {&pGlDisableVertexAttribArray, "glDisableVertexAttribArray"},
+    {&pGlCreateShader, "glCreateShader"},              {&pGlShaderSource, "glShaderSource"},
+    {&pGlCompileShader, "glCompileShader"},            {&pGlGetShaderiv, "glGetShaderiv"},
+    {&pGlCreateProgram, "glCreateProgram"},            {&pGlAttachShader, "glAttachShader"},
+    {&pGlLinkProgram, "glLinkProgram"},                {&pGlGetUniformLocation, "glGetUniformLocation"},
+    {&pGlUseProgram, "glUseProgram"},                  {&pGlUniform1i, "glUniform1i"},
+    {&pGlUniform2fv, "glUniform2fv"},                  {&pGlUniform4fv, "glUniform4fv"},
+    {&pGlGenFramebuffers, "glGenFramebuffers"},        {&pGlBindFramebuffer, "glBindFramebuffer"},
+    {&pGlGenRenderbuffers, "glGenRenderbuffers"},      {&pGlBindRenderbuffer, "glBindRenderbuffer"},
+    {&pGlRenderbufferStorage, "glRenderbufferStorage"},                                                {&pGlFramebufferTexture2D, "glFramebufferTexture2D"},
+    {&pGlFramebufferRenderbuffer, "glFramebufferRenderbuffer"},                                        {&pGlCheckFramebufferStatus, "glCheckFramebufferStatus"},
+    {&pGlDrawArrays, "glDrawArrays"},                  {&pGlMatrixMode, "glMatrixMode"},
+    {&pGlLoadIdentity, "glLoadIdentity"},              {&pGlOrtho, "glOrtho"},
+    {&pGlLoadMatrixf, "glLoadMatrixf"},
+};
+
+// How many of those came back empty, and the first one that did (*first stays NULL when none did).
+extern "C" int slinky_gl_missing_essential(const char **first) {
+    int missing = 0;
+    if (first) *first = 0;
+    for (const Essential &e : essentials)
+        if (!*e.slot) {
+            missing++;
+            if (first && !*first) *first = e.name;
+        }
+    return missing;
+}
+
+// What the game's context reports, for the same line; NULL when the driver would not say.
+extern "C" const char *slinky_gl_version_string(void) {
+    PFNGLGETSTRINGPROC get = (PFNGLGETSTRINGPROC)pGlGetString;
+    return get ? (const char *)get(GL_VERSION) : 0;
+}

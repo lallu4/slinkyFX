@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // w32/windows.h - minimal Win32 compatibility layer for building the
-// SlinkyNative payload on Linux.  It is only added to the include path on
+// SlinkyNative bootstrap on Linux.  It is only added to the include path on
 // non-Windows builds, so `#include <windows.h>` in the (otherwise portable)
 // JNI/JVMTI sources resolves here instead.  Windows builds never see it.
 //
@@ -50,8 +50,6 @@ typedef void* HANDLE;
 typedef void* HMODULE;
 typedef void* HINSTANCE;
 typedef void* LPVOID;
-typedef void* HRSRC;
-typedef void* HGLOBAL;
 typedef const wchar_t* LPCWSTR;
 typedef wchar_t* LPWSTR;
 typedef char* LPSTR;
@@ -373,119 +371,6 @@ inline HMODULE GetModuleHandleW(const wchar_t* /*name*/) {
 inline void* GetProcAddress(HMODULE module, const char* name) {
     if (!module) return nullptr;
     return dlsym(module, name);
-}
-
-// ---------------------------------------------------------------------------
-// Embedded payload resources.  The four payload jars are linked in with
-// `objcopy -I binary`, producing _binary_res<id>_bin_{start,end} symbols.
-// Undefined weak references resolve to nullptr, so a build without embedded
-// jars falls through to the on-disk fallback exactly like Windows does when
-// the RT_RCDATA resources are absent.
-// ---------------------------------------------------------------------------
-extern "C" {
-extern const unsigned char _binary_res101_bin_start[] __attribute__((weak));
-extern const unsigned char _binary_res101_bin_end[]   __attribute__((weak));
-extern const unsigned char _binary_res102_bin_start[] __attribute__((weak));
-extern const unsigned char _binary_res102_bin_end[]   __attribute__((weak));
-extern const unsigned char _binary_res103_bin_start[] __attribute__((weak));
-extern const unsigned char _binary_res103_bin_end[]   __attribute__((weak));
-}
-
-#define MAKEINTRESOURCEW(i) ((const wchar_t*)(uintptr_t)(i))
-
-struct SlinkyW32Resource {
-    const unsigned char* data;
-    size_t size;
-};
-
-inline const SlinkyW32Resource* W32FindResourceById(unsigned id) {
-    const unsigned char* start = nullptr;
-    const unsigned char* end = nullptr;
-    switch (id) {
-        case 101: start = _binary_res101_bin_start; end = _binary_res101_bin_end; break;
-        case 102: start = _binary_res102_bin_start; end = _binary_res102_bin_end; break;
-        case 103: start = _binary_res103_bin_start; end = _binary_res103_bin_end; break;
-        default: return nullptr;
-    }
-    if (!start || !end || end <= start) return nullptr;
-    static thread_local SlinkyW32Resource res;
-    res.data = start;
-    res.size = (size_t)(end - start);
-    return &res;
-}
-
-inline HRSRC FindResourceW(HMODULE /*hModule*/, LPCWSTR name, LPCWSTR /*type*/) {
-    if (!name) return nullptr;
-    uintptr_t raw = (uintptr_t)name;
-    if (raw > 0xFFFF) return nullptr;  // string names are not used
-    const SlinkyW32Resource* res = W32FindResourceById((unsigned)raw);
-    return (HRSRC)res;
-}
-
-inline DWORD SizeofResource(HMODULE /*hModule*/, HRSRC hRes) {
-    if (!hRes) return 0;
-    return (DWORD)((const SlinkyW32Resource*)hRes)->size;
-}
-
-inline HGLOBAL LoadResource(HMODULE /*hModule*/, HRSRC hRes) {
-    return (HGLOBAL)hRes;
-}
-
-inline const void* LockResource(HGLOBAL hLoad) {
-    if (!hLoad) return nullptr;
-    return ((const SlinkyW32Resource*)hLoad)->data;
-}
-
-// ---------------------------------------------------------------------------
-// File helpers used by ExtractPayloadJar
-// ---------------------------------------------------------------------------
-inline HANDLE CreateFileW(LPCWSTR wpath, DWORD /*access*/, DWORD /*share*/,
-                          void* /*sec*/, DWORD /*disposition*/, DWORD /*flags*/,
-                          void* /*templateFile*/) {
-    std::string path = w32compat::WideToUtf8(wpath);
-    FILE* f = fopen(path.c_str(), "wb");
-    if (!f) return INVALID_HANDLE_VALUE;
-    return (HANDLE)f;
-}
-
-inline BOOL WriteFile(HANDLE h, const void* data, DWORD len, DWORD* written, void* /*overlapped*/) {
-    FILE* f = (FILE*)h;
-    if (!f) return FALSE;
-    size_t n = fwrite(data, 1, len, f);
-    if (written) *written = (DWORD)n;
-    return (n == len) ? TRUE : FALSE;
-}
-
-inline BOOL CloseHandle(HANDLE h) {
-    if (!h || h == INVALID_HANDLE_VALUE) return FALSE;
-    return (fclose((FILE*)h) == 0) ? TRUE : FALSE;
-}
-
-inline DWORD GetFileAttributesW(LPCWSTR wpath) {
-    std::string path = w32compat::WideToUtf8(wpath);
-    struct stat st;
-    if (stat(path.c_str(), &st) != 0) return INVALID_FILE_ATTRIBUTES;
-    return FILE_ATTRIBUTE_NORMAL;
-}
-
-inline BOOL CopyFileW(LPCWSTR wsrc, LPCWSTR wdst, BOOL failIfExists) {
-    std::string src = w32compat::WideToUtf8(wsrc);
-    std::string dst = w32compat::WideToUtf8(wdst);
-    if (failIfExists && GetFileAttributesW(wdst) != INVALID_FILE_ATTRIBUTES) return FALSE;
-    int in = open(src.c_str(), O_RDONLY);
-    if (in < 0) return FALSE;
-    int out = open(dst.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (out < 0) { close(in); return FALSE; }
-    char buf[65536];
-    ssize_t n;
-    BOOL ok = TRUE;
-    while ((n = read(in, buf, sizeof(buf))) > 0) {
-        if (write(out, buf, (size_t)n) != n) { ok = FALSE; break; }
-    }
-    if (n < 0) ok = FALSE;
-    close(in);
-    close(out);
-    return ok;
 }
 
 #endif // !_WIN32

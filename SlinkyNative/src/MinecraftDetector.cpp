@@ -16,9 +16,10 @@ namespace {
 //   ave                            : Vanilla, OptiFine, Lunar, Badlion (notch / obfuscated)
 //   net/minecraft/class_1600       : Legacy Fabric intermediary members
 //
-// 1.7.10 uses bao (notch) or net/minecraft/client/Minecraft (MCP). It is
-// handled by the native engine DLL because this build's Java payload is
-// compiled against 1.8.9.
+// 1.7.10 uses bao (notch) or net/minecraft/client/Minecraft (MCP).
+// What is found here is only reported, not acted on: the C++ engine is the
+// client for every one of these, and it works the naming scheme out again
+// for itself.
 const char* const kNamedClassSig        = "Lnet/minecraft/client/Minecraft;";
 const char* const kOfficialClassSig     = "Lave;";
 const char* const kIntermediaryClassSig = "Lnet/minecraft/class_1600;";
@@ -284,12 +285,12 @@ bool MinecraftDetector::Detect(MinecraftInfo& outInfo) {
 
                 outInfo.mapping = verdict.mapping;
                 switch (verdict.mapping) {
-                case MappingType::Named:        outInfo.mappingName = "named";        outInfo.resourceId = 101; break;
-                case MappingType::Srg:          outInfo.mappingName = "srg";          outInfo.resourceId = 102; break;
-                case MappingType::Official:     outInfo.mappingName = "official";     outInfo.resourceId = 103; break;
-                case MappingType::Intermediary: outInfo.mappingName = "intermediary"; outInfo.resourceId = 103; break;
-                case MappingType::Legacy1710:   outInfo.mappingName = "legacy1710";   outInfo.resourceId = 105; break;
-                default:                        outInfo.mappingName = "official";     outInfo.resourceId = 103; break;
+                case MappingType::Named:        outInfo.mappingName = "named";        break;
+                case MappingType::Srg:          outInfo.mappingName = "srg";          break;
+                case MappingType::Official:     outInfo.mappingName = "official";     break;
+                case MappingType::Intermediary: outInfo.mappingName = "intermediary"; break;
+                case MappingType::Legacy1710:   outInfo.mappingName = "legacy1710";   break;
+                default:                        outInfo.mappingName = "official";     break;
                 }
                 outInfo.minecraftClass = static_cast<jclass>(env->NewGlobalRef(cls));
 

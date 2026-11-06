@@ -5,6 +5,7 @@ extern "C" JIds *java_natives_world_cached_jni_ids;
 extern "C" void slinky_logf(const char *fmt, ...);
 extern "C" char *ptr_to_frame_module_settings;   // -> module settings block
 FN(void, render_world_events, (JNIEnv *env, int key, bool down));
+FN(void, hooks_first_frame_init, ());   // engine/protected/hooks.cpp: load the OpenGL entry points, build the menu
 FN(void, tick_rotation, (Jvm *jvm));
 FN(void, set_local_player_max_hurt_time, (Jvm *jvm));
 FN(unsigned char, world_is_loaded, (Jvm *jvm));
@@ -16,12 +17,16 @@ FN(unsigned char, world_is_loaded, (Jvm *jvm));
 extern "C" unsigned char java_natives_frame_client_shutting_down_natives_check;
 extern "C" void hook_post_world_clear_1_7(JNIEnv *env, jclass, int key) { if (!java_natives_frame_client_shutting_down_natives_check) render_world_events(env, key, false); }
 extern "C" void hook_post_world_clear_1_8(JNIEnv *env, jclass, int key) { if (!java_natives_frame_client_shutting_down_natives_check) render_world_events(env, key, true); }
-extern "C" void hook_is_display_active_prerender(JNIEnv *env, jclass) {
-    if (java_natives_frame_client_shutting_down_natives_check) return;
+extern "C" unsigned char hook_is_display_active_prerender(JNIEnv *env, jclass) {
+    if (java_natives_frame_client_shutting_down_natives_check) return 1;
     Jvm jvm = {java_natives_world_cached_jni_ids, env};
     tick_rotation(&jvm);
     if (ptr_to_frame_module_settings[0x14] == 1) set_local_player_max_hurt_time(&jvm);
-    world_is_loaded(&jvm);
+    // The value the game asked for, and it is not a detail: this native stands in for Display.isActive() inside
+    // the render loop, which decides whether the window still has the mouse, whether the game pauses itself, and
+    // whether the cursor gets handed to a screen. Returning nothing left the game reading whatever the last call
+    // happened to leave in the register.
+    return world_is_loaded(&jvm);
 }
 
 struct Rot { float yaw, pitch; };
@@ -158,6 +163,7 @@ FN(void, clear_frame, (void *gui));
 FN(void, begin_frame, (void *gui, double t));
 FN(void, draw_framebuffer_texture_over_screen, (void *gui));
 FN(void, end_frame, (void *gui));
+FN(unsigned char, overlay_usable, ());
 FN(unsigned char, has_queued_modules, (void *mgr));
 FN(void, apply_module_toggles, (HCtx *ctx));
 FN(void, tick_modules, (HCtx *ctx, void *timer, double now));
@@ -173,8 +179,24 @@ FN(void, restore_game_window, ());
 FN(void, input_poll_client_state, (Jvm *jvm, void *minecraft));   // platform/linux/input.cpp: the LWJGL/GLFW state poll
 FN(void, gui_render_target_destroy, ());
 FN(void, java_set_minecraft_in_game_focus, (Jvm *jvm, void *minecraft, int value));
+FN(void *, java_get_minecraft_current_screen, (Jvm *jvm, void *minecraft));
+FN(void, java_set_minecraft_current_screen, (Jvm *jvm, void *minecraft, void *screen));
 FN(void, java_call_static_mouse_consume_delta, (Jvm *jvm));
 extern "C" unsigned char gui_owns_cursor;   // the ClickGUI holds Minecraft.inGameHasFocus cleared (logic/visual/gui.cpp)
+// The ClickGUI is not one of the game's screens, so the game keeps doing what it does without one: losing the
+// window makes it pause itself and put its "back to game" menu up behind ours, and it is still there when the
+// window comes back. If the menu holds the cursor and the game shows a screen with the window away, that is the
+// pause, and it comes down on the way back - not while still away, where the game would simply put it up again
+// every frame. A screen the player opened themselves (chat, a chest, a pause before the menu) stays: it only
+// ever appears with the window in front, and then this does nothing.
+static void dismiss_foreign_screen(Jvm *jvm, void *minecraft) {
+    static unsigned char pause_while_away;   // the game paused itself with the window away, ours to clear
+    void *screen = java_get_minecraft_current_screen(jvm, minecraft);
+    if (!screen || !gui_owns_cursor) { pause_while_away = 0; return; }
+    if (!world_is_loaded(jvm)) { pause_while_away = 1; return; }   // isActive gone: leave it up, no point fighting
+    if (pause_while_away) java_set_minecraft_current_screen(jvm, minecraft, 0);
+    pause_while_away = 0;
+}
 // This drain only reaches clients whose deltas do come from LWJGL. Vanilla is the only reader of
 // Mouse.getDX()/getDY() and empties them on every frame it holds the cursor, so clearing the focus flag stops
 // the reading too and leaves the movement of the last poll standing in LWJGL's hands - and the cursor warp
@@ -284,6 +306,9 @@ extern "C" void hook_update_display(JNIEnv *env) {
                                // unload thread is about to free (save_settings of a second pass crashed here)
     hook_game_window();
     if (!java_natives_world_cached_jni_ids) return;   // nothing is hooked up yet, this frame is the game's own
+    // The set-up this frame reaches first also gets the OpenGL entry points and the menu running. It goes here
+    // rather than only inside the tick hooks because the tick sites are the ones a modded client can rewrite.
+    hooks_first_frame_init();
     if (unload_detach_frame) {
         Jvm djvm = {java_natives_world_cached_jni_ids, env};
         void *minecraft = get_minecraft(&djvm);
@@ -298,7 +323,8 @@ extern "C" void hook_update_display(JNIEnv *env) {
             // Nothing of ours is drawn from here on, so the cursor goes back to the game now: the helper does
             // the grab and, on top of it, resets its own delta source, and the movement made inside the menu is
             // thrown away in this same frame - it is read at the top of the next one, so the game never sees it.
-            if (minecraft && gui_owns_cursor && is_in_game(&djvm, minecraft)) {
+            if (minecraft && gui_owns_cursor && is_in_game(&djvm, minecraft) &&
+                !java_get_minecraft_current_screen(&djvm, minecraft)) {
                 java_set_minecraft_in_game_focus(&djvm, minecraft, 1);
                 if (!java_call_mouse_helper_grab_cursor(&djvm, minecraft))
                     java_call_static_mouse_set_grabbed(&djvm, 1);
@@ -334,6 +360,7 @@ extern "C" void hook_update_display(JNIEnv *env) {
     // Mouse.getDX()/getDY() in its own loop, gated on Minecraft.inGameHasFocus, and a window focus change
     // puts that flag back on. This frame runs whether or not the game thinks it has focus.
     if (cfg[0x14] && gui_owns_cursor) java_set_minecraft_in_game_focus(&jvm, minecraft, 0);
+    dismiss_foreign_screen(&jvm, minecraft);
     *(int *)&ctx.padding_41[0] = 0;
     ctx.padding_44 = 0;
     if (!ctx.in_game && frame_prev_module_state) {
@@ -346,7 +373,7 @@ extern "C" void hook_update_display(JNIEnv *env) {
     int W = display_width(&jvm);
     int H = display_height(&jvm);
     if (0.0 > frame_start_time) frame_start_time = now;
-    if (frame_render_target && !is_event_handled(java_natives_world_module_manager, 0xa)) {
+    if (frame_render_target && overlay_usable() && !is_event_handled(java_natives_world_module_manager, 0xa)) {
         render_target_width = W;
         render_target_height = H;
         if (resize_render_target(frame_render_target, W, H)) {

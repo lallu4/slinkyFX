@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # When this directory is configured standalone (Windows engine build), compute
 # the project root so the bundled LLVM toolchain can be found.  When included
-# from the top-level CMakeLists.txt (Linux payload build), the top-level has
+# from the top-level CMakeLists.txt (Linux bootstrap build), the top-level has
 # already selected the compilers and this path is simply unused.
 get_filename_component(SLINKY_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
 set(SLINKY_LLVM_DIR "${SLINKY_PROJECT_ROOT}/tools/llvm/clang+llvm-23.1.4-x86_64-pc-windows-msvc" CACHE PATH "Bundled LLVM")
@@ -10,42 +10,18 @@ set(SLINKY_LLVM_DIR "${SLINKY_PROJECT_ROOT}/tools/llvm/clang+llvm-23.1.4-x86_64-
 project(SlinkyNative LANGUAGES C CXX)
 
 # ------------------------------------------------------------------
-# Linux: legacy JNI/JVMTI payload library with embedded Java jars.
+# Linux: the bootstrap that starts the native engine (libslinky-native.so).
+# The engine itself is a second image, built by tools/build-linux-engine.sh.
 # ------------------------------------------------------------------
 if(NOT WIN32)
     find_package(Threads REQUIRED)
-
-    set(EMBED_DIR ${CMAKE_CURRENT_BINARY_DIR}/embed)
-    file(MAKE_DIRECTORY ${EMBED_DIR})
-    set(EMBED_OBJS "")
-    # No resource 104: the detector maps intermediary onto the official jar (103).
-    foreach(pair "101:slinky-named" "102:slinky-srg" "103:slinky-official")
-        string(REPLACE ":" ";" parts "${pair}")
-        list(GET parts 0 rid)
-        list(GET parts 1 rname)
-        set(jar ${CMAKE_CURRENT_SOURCE_DIR}/payload/${rname}.jar)
-        set(bin ${EMBED_DIR}/res${rid}.bin)
-        set(obj ${EMBED_DIR}/res${rid}.o)
-        add_custom_command(
-            OUTPUT ${obj}
-            COMMAND ${CMAKE_COMMAND} -E make_directory ${EMBED_DIR}
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${jar} ${bin}
-            COMMAND ${CMAKE_OBJCOPY} -I binary -O elf64-x86-64 -B i386:x86-64 res${rid}.bin res${rid}.o
-            WORKING_DIRECTORY ${EMBED_DIR}
-            DEPENDS ${jar}
-            COMMENT "Embedding payload ${rname}.jar as resource ${rid}"
-            VERBATIM)
-        list(APPEND EMBED_OBJS ${obj})
-    endforeach()
 
     add_library(SlinkyNative SHARED
         src/SoMain.cpp
         src/Logger.cpp
         src/JvmManager.cpp
         src/MinecraftDetector.cpp
-        src/NativeBridge.cpp
         src/PayloadLoader.cpp
-        ${EMBED_OBJS}
     )
 
     target_include_directories(SlinkyNative PRIVATE
@@ -54,7 +30,6 @@ if(NOT WIN32)
         ${CMAKE_CURRENT_SOURCE_DIR}/include/jdk/linux
         ${CMAKE_CURRENT_SOURCE_DIR}/include/w32
     )
-    target_compile_definitions(SlinkyNative PRIVATE EMBED_PAYLOAD_JARS)
     target_link_libraries(SlinkyNative PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
 
     set_target_properties(SlinkyNative PROPERTIES

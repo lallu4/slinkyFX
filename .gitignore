@@ -25,8 +25,7 @@ Desktop.ini
 # Python bytecode (the audit scripts are run, not imported)
 __pycache__/
 
-# slinkyFX generated payloads / staging
-SlinkyNative/payload/*.tmp
+# slinkyFX staging
 /tmp/slinky-*
 
 # Downloaded toolchain (large, can be re-downloaded)

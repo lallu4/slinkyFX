@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # slinkyFX - compile the Linux-only C++ for the target, from this machine.
 #
-# The loader (Slinky/src/linux) and the bootstrap (SlinkyNative/src, the six files that make
+# The loader (Slinky/src/linux) and the bootstrap (SlinkyNative/src, the five files that make
 # libslinky-native.so) are not built by build.sh on Windows - on Linux, a player builds them with their own
 # compiler. That leaves the code the players compile untested by anything here, which is the worst place to
 # find out: a typo becomes "slinkyFX does not build on Arch".
@@ -49,9 +49,9 @@ CXX=(-nostdinc++
 WARN=(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 
 echo "[1/3] The bootstrap that becomes libslinky-native.so..."
-for f in SoMain Logger JvmManager MinecraftDetector NativeBridge PayloadLoader; do
+for f in SoMain Logger JvmManager MinecraftDetector PayloadLoader; do
     "$CLANGXX" --target=x86_64-unknown-linux-gnu --sysroot "$SR" "${CXX[@]}" \
-        -std=c++17 -fPIC "${WARN[@]}" -DEMBED_PAYLOAD_JARS \
+        -std=c++17 -fPIC "${WARN[@]}" \
         -I"$ROOT/SlinkyNative/include" -I"$ROOT/SlinkyNative/include/jdk" \
         -I"$ROOT/SlinkyNative/include/jdk/linux" -I"$ROOT/SlinkyNative/include/w32" \
         -c -o "$OUT/bootstrap_$f.o" "$ROOT/SlinkyNative/src/$f.cpp"
@@ -74,4 +74,4 @@ echo "[3/3] The loader with X11 (window-title matching - what a player who follo
     -c -o "$OUT/loader_ProcessUtil_x11.o" "$ROOT/Slinky/src/linux/ProcessUtil.cpp"
 echo "      ProcessUtil.cpp"
 
-echo "[OK] 11 Linux-only objects: the bootstrap, the loader both ways (build/linux-check)"
+echo "[OK] 10 Linux-only objects: the bootstrap, the loader both ways (build/linux-check)"

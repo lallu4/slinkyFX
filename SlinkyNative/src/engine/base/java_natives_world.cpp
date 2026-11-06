@@ -1,6 +1,7 @@
 // 0x8000: Java native entry points (SlinkyHooks13): wrap the JNIEnv in a Jvm handle and forward
 #include "slinky/engine.h"
 #include "slinky/jids.h"
+#include "slinky/gl_slots.h"      // glLoadMatrixf, for putting the game's matrices back after the 2D pass
 extern "C" JIds *java_natives_world_cached_jni_ids;
 extern "C" unsigned char java_natives_frame_client_shutting_down_natives_check;   // set by the unload sequence: every entry below is inert once it is 1
 extern "C" void slinky_logf(const char *fmt, ...);
@@ -137,8 +138,10 @@ FN(Rot, get_entity_rotation, (Jvm *jvm, void *entity));
 FN(unsigned char, is_event_handled, (void *mgr, int type));
 FN(void, apply_player_rotation, (HCtx *ctx, unsigned char a, unsigned char b, unsigned char d, Rot rotation));
 FN(void, set_rotation_active, (Jvm *jvm, void *player, bool on));
+FN(void, hooks_first_frame_init, ());                 // engine/protected/hooks.cpp: load the GL entry points, build the menu
 extern "C" void hook_update_entities(JNIEnv *env, jclass, void *receiver) {
     if (java_natives_frame_client_shutting_down_natives_check) return;
+    hooks_first_frame_init();   // this tick always runs, so the set-up does not depend on the getMouseOver site
     Jvm jvm = {java_natives_world_cached_jni_ids, env};
     void *minecraft = get_minecraft(&jvm);
     void *player = get_local_player(&jvm, minecraft);
@@ -276,6 +279,7 @@ FN(void, set_silent_rotation_active, (Jvm *jvm, void *player, bool on));
 typedef void (*GlCap)(unsigned);
 typedef void (*GlBlend)(unsigned, unsigned);
 typedef void (*GlGetD)(unsigned, double *);
+typedef void (*GlMatrixF)(const float *);      // glLoadMatrixf: glcorearb.h has no typedef for a GL 1.0 call
 typedef void (*GlVoid)();
 typedef void (*GlOrtho)(double, double, double, double, double, double);
 typedef void (*GlColor4)(float, float, float, float);
@@ -291,9 +295,8 @@ extern "C" int render_target_width, render_target_height;
 extern "C" double gl_modelview_matrix[16], gl_projection_matrix[16];
 struct R3D { long long type; Vec3 cam; HCtx *ctx; float pt; unsigned char flag; char rest[0x1b]; };
 struct R2D { long long type; Vec3 cam; HCtx *ctx; float w, h; double *proj, *mv; float pt; unsigned char flag, padding_5, padding_6, padding_7; };
-extern "C" void render_world_events(JNIEnv *env, unsigned mask, unsigned char flag) {
-    if (java_natives_frame_client_shutting_down_natives_check) return;
-    if (!frame_render_target) return;
+extern "C" void render_world_events(JNIEnv *env, unsigned mask, unsigned char flag);
+static void world_render_events(JNIEnv *env, unsigned mask, unsigned char flag) {
     static int events_logged;
     if (!events_logged) {
         events_logged = 1;
@@ -353,6 +356,20 @@ extern "C" void render_world_events(JNIEnv *env, unsigned mask, unsigned char fl
                     (*push)();
                     R2D e = {7, cam, &ctx, (float)render_target_width, (float)render_target_height, gl_modelview_matrix, gl_projection_matrix, partial_ticks, flag, 0, 0, 0};
                     dispatch_event(java_natives_world_module_manager, (Event *)&e);
+                    // The two calls above replaced the game's camera with a pixel grid and an identity, and the
+                    // modules read the matrices from the captured copies, not from the context - so the originals
+                    // go back here. Nothing else does: 1.8.9 builds its chunk frustum from the live projection and
+                    // modelview, and with ours still current it culls and draws the world against a screen-sized box,
+                    // which is the geometry at the wrong scale, doubled and smeared over the frames before it.
+                    // The two arrays hold 16 floats each (that is what glGetFloatv above wrote, and what the
+                    // projection code reads back), so this is glLoadMatrixf over a float[16], not a double one.
+                    GlMatrixF load_matrix = (GlMatrixF)pGlLoadMatrixf;
+                    if (load_matrix) {
+                        (*mode)(0x1701);
+                        load_matrix((const float *)gl_projection_matrix);
+                        (*mode)(0x1700);
+                        load_matrix((const float *)gl_modelview_matrix);
+                    }
                 }
                 if (flag) {
                     gl_bind_texture(&jvm); gl_enable_depth(&jvm); gl_begin_2d(&jvm); gl_depth_mask(&jvm);
@@ -366,7 +383,22 @@ extern "C" void render_world_events(JNIEnv *env, unsigned mask, unsigned char fl
         }
         if (silent) set_silent_rotation_active(&jvm, player, false);
     }
-    (*ptr_to_pGlClear)(mask);
+}
+
+// The clear itself, and it is not optional here. This hook replaces one GlStateManager.clear call inside
+// EntityRenderer.renderWorldPass, so whatever else the frame does or does not do, the game's colour and depth
+// buffers still have to be wiped. Returning without them leaves the last frame on screen and paints the next one
+// over it: standing still hides that completely, and turning the camera floods the picture with every frame before
+// it - geometry at the wrong scale, textures smeared, name tags piled one on another.
+// The entry-point table is filled by gui_init, which runs from a game hook, so the slot can still be empty when
+// the first clear arrives; glClear is therefore also resolved by name instead of assumed to be there.
+extern "C" void *slinky_gl_get_proc(const char *name);
+extern "C" void render_world_events(JNIEnv *env, unsigned mask, unsigned char flag) {
+    if (!java_natives_frame_client_shutting_down_natives_check && frame_render_target)
+        world_render_events(env, mask, flag);
+    GlCap clear = *ptr_to_pGlClear;
+    if (!clear) clear = (GlCap)slinky_gl_get_proc("glClear");
+    if (clear) (*clear)(mask);
 }
 
 // ---- the client's input handler (installed in input_input_handler_hooked_into_game for the game-window hook, see protected/input.cpp) ----
