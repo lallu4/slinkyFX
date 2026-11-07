@@ -17,6 +17,9 @@ HANDLE ConsoleUI::s_hAnimationThread = nullptr;
 DWORD ConsoleUI::s_OriginalConsoleMode = 0;
 HANDLE ConsoleUI::s_hConsole = INVALID_HANDLE_VALUE;
 
+// The console's output codepage on the way in, so it goes back on the way out.
+static UINT s_OriginalOutputCP = 0;
+
 // Palette: bright white for the dog art/ground, slinky orange for phase header
 // and countdown seconds, bright red for failure, neutral greys for the arrow,
 // license and status lines.
@@ -132,6 +135,13 @@ void ConsoleUI::Initialize() {
         SetConsoleMode(s_hConsole, s_OriginalConsoleMode | 0x0004);
     }
 
+    // Windows writes a console in the locale's legacy codepage, and every message that comes from the system -
+    // "Access is denied." in the player's own language - is turned into UTF-8 bytes before it is printed. On a
+    // console still set to 850 or 932 those bytes arrive as a row of accents nobody wrote. Asking the console
+    // for UTF-8 is what makes the two agree, and the number it had before goes back on the way out.
+    s_OriginalOutputCP = GetConsoleOutputCP();
+    if (s_OriginalOutputCP != CP_UTF8) SetConsoleOutputCP(CP_UTF8);
+
     // The tab title is left to the console host: it defaults to the
     // executable path, which is exactly what the original loader showed.
 
@@ -145,6 +155,8 @@ void ConsoleUI::Shutdown() {
     if (s_hConsole != INVALID_HANDLE_VALUE && s_OriginalConsoleMode != 0) {
         SetConsoleMode(s_hConsole, s_OriginalConsoleMode);
     }
+    if (s_OriginalOutputCP != 0 && s_OriginalOutputCP != CP_UTF8) SetConsoleOutputCP(s_OriginalOutputCP);
+    s_OriginalOutputCP = 0;
     DeleteCriticalSection(&s_CriticalSection);
 }
 

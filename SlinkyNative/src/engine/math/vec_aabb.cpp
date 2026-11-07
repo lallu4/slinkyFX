@@ -1,7 +1,15 @@
 // 0x9000: Vec3 / AABB helpers (MS ABI: 24/48-byte structs travel by pointer, results via sret)
 #include "slinky/engine.h"
-struct Vec3 { double x, y, z; };
-struct AABB { Vec3 min, max; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct AABB { Vec3 min, max;
+#ifdef __linux__
+    ~AABB() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" double unused_constant_1_62, unused_constant_neg_1_62_b;
 
 extern "C" Vec3 vec3_make(double x, double y, double z) { return Vec3{x, y, z}; }
@@ -24,11 +32,10 @@ extern "C" Vec3 vec3_add_eye_height(Vec3 a) { return Vec3{a.x, a.y + unused_cons
 extern "C" Vec3 vec3_add_eye_height_sneak(Vec3 a) { return Vec3{a.x, a.y + unused_constant_neg_1_62_b, a.z}; }
 extern "C" Vec3 vec3_reciprocal(Vec3 a) { return Vec3{1.0 / a.x, 1.0 / a.y, 1.0 / a.z}; }
 extern "C" AABB aabb_make(Vec3 a, Vec3 b) { return AABB{a, b}; }
-extern "C" AABB *aabb_expand(AABB *out, AABB *b, double d) {
-    b->min.x -= d; b->min.y -= d; b->min.z -= d;
-    b->max.x += d; b->max.y += d; b->max.z += d;
-    *out = *b;
-    return out;
+extern "C" AABB aabb_expand(AABB b, double d) {
+    b.min.x -= d; b.min.y -= d; b.min.z -= d;
+    b.max.x += d; b.max.y += d; b.max.z += d;
+    return b;
 }
 extern "C" bool aabb_intersects(AABB *a, AABB *b) {
     return b->max.x > a->min.x && a->max.x > b->min.x && b->max.y > a->min.y &&
@@ -40,7 +47,11 @@ extern "C" bool aabb_contains_point(AABB *a, Vec3 *p) {
 }
 
 // ---- Rot (yaw, pitch) packed in one register ----
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(float, libc_hypotf_alt, (float a, float b));
 FN(float, libc_hypotf, (float a, float b));
 extern "C" double libc_atan2(double y, double x);
@@ -233,8 +244,7 @@ extern "C" bool aabb_ray_hit(const AABB *b, const Vec3 *o, const Vec3 *dir, Vec3
 
 // ---- packet hook: GUI-chat commands first, then the packet event (0x17); returns "cancel" ----
 #include "slinky/jids.h"
-struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target;
-              unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
+struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target; unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
 extern "C" char java_natives_world_module_manager[], java_natives_frame_module_manager_target_state[];
 extern "C" void *init_profile_list, *java_natives_world_key_state_table_one_byte;
 extern "C" char *ptr_to_gui_module_descriptor;
@@ -310,5 +320,9 @@ extern "C" Vec3 vec3_copy(Vec3 v) {   // normalize
 }
 extern "C" double vec3_length(const Vec3 *v) { return __builtin_sqrt((v->x * v->x + v->y * v->y) + v->z * v->z); }
 
-struct V2f9 { float x, y; };
+struct V2f9 { float x, y;
+#ifdef __linux__
+    ~V2f9() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" float vec2_length_sq(V2f9 v) { return v.x * v.x + v.y * v.y; }

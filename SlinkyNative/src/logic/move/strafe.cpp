@@ -5,7 +5,16 @@
 
 typedef float __m128 __attribute__((vector_size(16), aligned(16)));
 typedef int __m128i_ __attribute__((vector_size(16), aligned(16)));
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct MoveHook { char padding_00[8]; Ctx *ctx; float strafe; float forward; float speed; unsigned char sprint; };  // +0x10/+0x14/+0x1c
 
 extern "C" float strafe_max_hurt_time_value;           // "max_hurt_time"
@@ -30,7 +39,7 @@ FN(int, java_get_entity_living_base_hurt_time, (void *jvm, void *entity_living_b
 FN(unsigned char, java_get_entity_on_ground, (void *jvm, void *entity));
 FN(Vec3, java_get_entity_motion_x, (void *jvm, void *entity));
 FN(double, libc_hypot, (double x, double z));
-FN(unsigned, get_entity_rotation, (void *jvm, void *entity));
+FN(Rot, get_entity_rotation, (void *jvm, void *entity));
 FN(float, libc_sinf, (float v));
 FN(float, libc_cosf, (float v));
 FN(double, lerp_double, (double a, double b, double c));
@@ -71,13 +80,13 @@ extern "C" void strafe_on_move_flying(MoveHook *hook) {
     double d = libc_hypot(motion.x, motion.z);
     if (boost)
         d += fifth_in_strafe;
-    unsigned yawbits = get_entity_rotation(ctx->jvm, ctx->player);
+    float yawbits = get_entity_rotation(ctx->jvm, ctx->player).yaw;
     double a = 0.0;
     if (0.0f > hook->strafe)
         a = minus_one_in_strafe;
     if (hook->strafe > 0.0f)
         a = one_in_strafe;
-    double y = __builtin_bit_cast(float, yawbits);
+    double y = yawbits;
     if (hook->forward > 0.0f) {
         a *= strafe_minus_quarter_right_angle;
     } else if (0.0f > hook->forward) {

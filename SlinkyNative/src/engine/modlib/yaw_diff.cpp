@@ -1,6 +1,10 @@
 // 0x4a000: yaw-difference test
 #include "slinky/engine.h"
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 typedef float v4f __attribute__((vector_size(16)));
 typedef int v4i __attribute__((vector_size(16)));
 extern "C" v4i yaw_diff_fabs_mask;   // fabs mask

@@ -10,7 +10,6 @@ extern "C" unsigned char no_item_release_release_lock_flag;     // release-lock 
 
 struct RelState { char padding_00[8]; void *w; void *x; char padding_18[0xc]; int state; };  // +0x24
 struct ToggleHook { char padding_00[8]; void *ctx; void *ev; unsigned char on; };
-
 FN(void *, java_jni_is_instance_of_c08_packet_player_block_placement, (void *w, void *candidate));
 FN(void *, java_get_c08_packet_player_block_placement_stack, (void *w, void *c08_packet_player_block_placement));
 FN(void *, java_call_item_stack_get_item, (void *w, void *item_stack));

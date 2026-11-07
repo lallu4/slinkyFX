@@ -38,8 +38,16 @@ extern "C" unsigned inv_manager_score_item_stack(void **s, void *stack, int slot
     return score_item_inventory_sorter_category(s, alt, item_id, dmg, nbt, flag);
 }
 
-struct Pair { float x, y; };
-struct Range { float lo, hi; };
+struct Pair { float x, y;
+#ifdef __linux__
+    ~Pair() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct InvState {                   // 0x3049e0
     int state;
     int padding_04;

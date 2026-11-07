@@ -3,10 +3,21 @@
 //           placement would not land inside the player
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
-struct Box { Vec3 lo, hi; };
-struct Range { float lo, hi; };
-
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Box { Vec3 lo, hi;
+#ifdef __linux__
+    ~Box() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" float fast_place_click_timer;            // click timer
 extern "C" unsigned char fast_place_use_key_held_last_tick;    // use key held last tick
 extern "C" int fast_place_activation_delay_left;              // activation delay left

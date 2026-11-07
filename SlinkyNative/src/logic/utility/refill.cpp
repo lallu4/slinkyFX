@@ -1,8 +1,12 @@
 // Refill - move selected items into the hotbar and keep them stacked.
 #include "slinky/engine.h"
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char refill_module_descriptor[];           // Refill module descriptor
 extern "C" unsigned char refill_soup_class_offset;    // soup class offset
 extern "C" unsigned char refill_refill_potion;    // potions enabled
@@ -27,10 +31,10 @@ extern "C" const float random_range_bound_0_9_in_refill, random_range_bound_1_in
 extern "C" const double walk_period_10_in_refill, walk_period_30_in_refill, factor_0_3_in_refill, offset_1_in_refill;
 FN(void *, get_current_screen, (void *jvm, void *object));
 FN(unsigned char, java_jni_is_instance_of_gui_inventory, (void *jvm, void *screen));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(float, walk_update, (void *state, void *rng, double p));
-FN(unsigned char, walk_should_change, (void *state, void *rng, double p));
-FN(float, random_rotation, (void *rng));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(float, walk_update, (void *state, Rot rng, double p));
+FN(unsigned char, walk_should_change, (void *state, Rot rng, double p));
+FN(float, random_rotation, (Rot rng));
 FN(float, gauss_random, (void *st));
 FN(int, refill_pick_inventory_cell, (int last, float bias, float *dist));
 FN(void, refill_disable_and_close_screen, (Ctx *ctx));

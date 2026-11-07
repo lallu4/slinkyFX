@@ -28,7 +28,11 @@ GL_COL(gl_array_color5, 6, 4, gl_array_color5_indices)
 GL_COL(gl_array_color6, 2, 4, gl_array_color6_indices)
 extern "C" void disable_vertex_array_state() { (*ptr_to_pGlDisableClientState)(0x8074); }
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void *, java_new_vec3_init, (void *jvm, Vec3 v));
 FN(void *, java_world_ray_trace_blocks, (void *jvm, void *object, void *other_object, void *d, bool e, bool f, bool g));
 FN(void *, get_game_settings, (void *jvm, void *object));
@@ -67,7 +71,11 @@ extern "C" bool vertex_pointer_current(Ctx3 *c) {
 }
 
 // ---- rotation state (silent aim / mouse emulation)
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(Rot, rot_add, (Rot a, Rot b));
 FN(Rot, rot_make, (float yaw, float pitch));
 FN(float, wrap_angle, (float a));                  // wrap to [-180, 180)
@@ -133,8 +141,16 @@ extern "C" void set_render_rotation(Rot rotation) {
 extern "C" Rot get_render_rotation() { return render_rotation; }
 
 // Minecraft formatting colour code ('0'-'9', 'a'-'e', anything else white) -> RGB
-struct F2 { float a, b; };
-struct Col { F2 rg; float b; };
+struct F2 { float a, b;
+#ifdef __linux__
+    ~F2() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Col { F2 rg; float b;
+#ifdef __linux__
+    ~Col() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" const F2 color_rg_1_1, color_rg_0p33_0p33, color_rg_0p67_0p67, color_rg_1_0p33, color_rg_0p33_1, color_rg_0_0p67, color_rg_1_0p67;
 extern "C" const float minecraft_colour_dark_component, one_in_silent_rotation_and_chat_colors, minecraft_colour_bright_component;   // 0.33, 1.0, 0.67
 extern "C" Col minecraft_color_code_to_rgb(unsigned short ch) {

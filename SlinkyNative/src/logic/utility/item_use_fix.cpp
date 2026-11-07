@@ -9,7 +9,6 @@ extern "C" char item_use_fix_module_descriptor[];            // Item Use Fix mod
 
 struct UseState { char padding_00[8]; Ctx *ctx; unsigned char skip; };  // skip @ +0x10
 struct ToggleHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 FN(void *, java_get_minecraft_player_controller, (void *jvm, void *minecraft));
 FN(unsigned char, java_get_player_controller_mp_is_hitting_block, (void *jvm, void *player_controller_mp));
 FN(void, java_set_player_controller_mp_is_hitting_block, (void *jvm, void *player_controller_mp, int on));

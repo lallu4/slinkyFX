@@ -1,11 +1,14 @@
 // GUI - ClickGUI helper callbacks (scale table, input filter, open/close, layout).
 #include "slinky/engine.h"
 
-struct V4 { float x, y, z, w; };
+struct V4 { float x, y, z, w;
+#ifdef __linux__
+    ~V4() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct InputEvt { int type; int code; int padding_08; unsigned char down; };   // +0x00 / +0x04 / +0x0c
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };  // +0x10 / +0x18
 struct Notice { int kind; int padding_04; int value; char rest[0x3c]; };
-
 extern "C" unsigned gui_scale_value;         // "scale"
 extern "C" const float gui_scale_table[];   // scale table
 extern "C" unsigned char gui_gui_open;    // gui open

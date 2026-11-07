@@ -43,10 +43,18 @@ extern "C" void draw_rect_stroked(void **w, const float *r, float round) {
     nvg_Stroke(nvg);
 }
 
-struct R16e { float x, y, w, h; };
-struct V4e { float x, y, z, w; };
+struct R16e { float x, y, w, h;
+#ifdef __linux__
+    ~R16e() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct V4e { float x, y, z, w;
+#ifdef __linux__
+    ~V4e() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void, push_layout_row, (GuiState *gui, R16e *r, float sp, float pad));
-FN(R16e, round_rect, (R16e r));
+FN(R16e, round_rect, (R16e *r));   // spelled as math_helpers.cpp defines it: MS hands big structs by address, SysV passes them in XMM
 FN(void, nvg_Save, (void *nvg));
 FN(void, nvg_Scissor, (void *nvg, float x, float y, float w, float h));
 typedef int v4ie __attribute__((vector_size(16)));
@@ -62,7 +70,7 @@ extern "C" void begin_content(void **w, GuiState *gui, R16e *r, float pad, float
     R16e local = *r;
     push_layout_row(gui, &local, pad, f);
     gui->rows[gui->layout_row_depth - 1].clip = 1;
-    *r = round_rect(*r);
+    *r = round_rect(r);
     nvg_Save(nvg);
     v4fe v = {pad, 0, 0, 0};
     float np = ((v4fe)((v4ie)v ^ gui_layout_sign_mask))[0] - pad;
@@ -119,7 +127,7 @@ extern "C" const unsigned text_align_flags_table[];
 extern "C" const float offset_1_in_gui_layout_c;
 extern "C" const double factor_0_5_in_gui_layout_a;   // 0.5
 // text in rect r: align 0 = left, 1 = centre, 2 = right; vertically centred
-extern "C" void draw_text_sized(GCol *window, R16e *r, unsigned align, unsigned col, void *text, void *end) {
+extern "C" float draw_text_sized(GCol *window, R16e *r, unsigned align, unsigned col, void *text, void *end) {
     set_draw_color(window, col);
     void *nvg = window->imgui;
     nvg_TextAlign(nvg, text_align_flags_table[align]);
@@ -131,7 +139,9 @@ extern "C" void draw_text_sized(GCol *window, R16e *r, unsigned align, unsigned 
         else x = (float)((double)r->w * factor_0_5_in_gui_layout_a + (double)x);
     }
     float yy = (float)((double)r->h * factor_0_5_in_gui_layout_a + (double)y);
-    nvg_text(nvg, x, yy, text, end);
+    // nvgText returns the pen position after the string, so the difference is the string's width;
+    // the settings list lays out the description box from it
+    return nvg_text(nvg, x, yy, text, end) - x;
 }
 
 extern "C" const float minus_one_in_gui_layout_b;
@@ -192,8 +202,13 @@ extern "C" float end_layout_row(GCol *w, GuiState *gui) {
     return (row->y0 + row->y0) + (bottom - row->top);
 }
 
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(R16e, inset_rect, (R16e r, float d));
-FN(unsigned long long, offset_rect, (R16e r));
+FN(Rot, offset_rect, (R16e *r));
 // push a layout row: clip r to the parent row, inset it by pad, start the cursor at its corner
 extern "C" void push_layout_row(GuiState *gui, R16e *r, float sp, float pad) {
     long long n = gui->layout_row_depth;
@@ -224,9 +239,14 @@ extern "C" void push_layout_row(GuiState *gui, R16e *r, float sp, float pad) {
     *(R16e *)row = *r;
     *(float *)(row + 0x10) = sp;
     *(float *)(row + 0x14) = pad;
-    *(unsigned long long *)(row + 0x1c) = offset_rect(*r);
+    Rot ov = offset_rect(r);
+    __builtin_memcpy(row + 0x1c, &ov, sizeof ov);
 }
-struct Img { char b[0x4c]; };
+struct Img { char b[0x4c];
+#ifdef __linux__
+    ~Img() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Off2 { float x, y; };
 FN(Img, nvg_image_pattern, (void *nvg, float x, float y, float w, float h, int z, int tex, float f));
 FN(void, nvg_FillPaint, (void *nvg, Img im));
@@ -279,7 +299,7 @@ extern "C" R16e add_cell(GuiState *gui, float h) {
         }
     }
     c->h = h;
-    return round_rect(*(R16e *)c);
+    return round_rect((R16e *)c);
 }
 
 // ---- input events: 1 mouse move, 2 key/button (+ up to 4 typed chars), 3 scroll; returns "consumed" ----

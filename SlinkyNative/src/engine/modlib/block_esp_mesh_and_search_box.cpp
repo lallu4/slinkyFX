@@ -61,11 +61,7 @@ FN(unsigned char, vector_grow, (void *data, unsigned long long elem, unsigned lo
 struct Vtx { float x, y, z; unsigned char r, g, b, a; };
 struct Corner { float x, y, z; };
 struct Blk { unsigned char x, y, z, padding_03; char padding_04[4]; float *color; };
-struct Mesh {
-    char padding_00[8]; unsigned long long nblocks; char padding_10[8]; Blk *blocks;
-    unsigned long long nv, capv; Vtx *v;
-    unsigned long long ni, capi; unsigned short *idx;
-};
+struct Mesh { char padding_00[8]; unsigned long long nblocks; char padding_10[8]; Blk *blocks; unsigned long long nv, capv; Vtx *v; unsigned long long ni, capi; unsigned short *idx; };
 extern "C" const float factor_255_in_block_esp_mesh_and_search_box;
 extern "C" const Corner cube_corner_offsets[8];
 extern "C" const unsigned short cube_edge_indices[24];

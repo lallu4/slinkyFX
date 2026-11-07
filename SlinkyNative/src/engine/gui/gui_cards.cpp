@@ -5,8 +5,16 @@ FN(void, close_popup, (void *x));
 extern "C" void close_popup_now(void *x) { close_popup(x); }
 extern "C" void reset_drag_state(GuiState *gui) { gui->input_mode = 0; gui->click_capture = 0; }
 
-struct R16f { float x, y, w, h; };
-struct V4f { float x, y, z, w; };
+struct R16f { float x, y, w, h;
+#ifdef __linux__
+    ~R16f() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct V4f { float x, y, z, w;
+#ifdef __linux__
+    ~V4f() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(float, libc_powf, (float x, float y));   // powf
 FN(void, nvg_GlobalAlpha, (void *nvg, float alpha));
 FN(V4f, nvg_rgba_f, (float r, float g, float b, float a));
@@ -48,7 +56,7 @@ FN(void, begin_content, (void *window, GuiState *gui, R16f *r, float pad, float 
 FN(void, pop_layout_row, (GuiState *gui, int n));
 FN(float, draw_module_header, (GuiState *gui, void *object, void *other_object, const R16f *r, float fsz, const V4f *col, const V4f *hcol, const char *text));
 FN(void, nvg_FontSize, (void *nvg, float size));
-FN(float, draw_text, (void *window, R16f r, int align, int col, const char *text));
+FN(float, draw_text, (void *window, const R16f *r, int align, int col, const char *text));   // spelled as gui_layout.cpp defines it: MS hands big structs by address, SysV passes them in XMM
 FN(void, draw_module_description, (GuiState *gui, void *object, void *cbArg, void *target, int key, unsigned char *hold, const R16f *r));
 FN(bool, draw_animated_description, (GuiState *gui, void *object, R16f *r, void *anim, unsigned char *val));
 FN(void, queue_module_toggle, (void *module_manager, void *module, unsigned char enabled));
@@ -90,7 +98,7 @@ extern "C" void draw_module_cards(GuiState *gui, WinA *window, Mgr2 *mgr, unsign
             nvg_FontSize(ig2, font_size_16_in_gui_cards);
             V4f c = grey12(colour_level_0_866667_in_gui_cards);
             nvg_FillColor(ig2, &c);
-            x = draw_text(window, hdr, 0, 0, module->name);
+            x = draw_text(window, &hdr, 0, 0, module->name);
         }
         unsigned f = module->flags;
         if (!(f & 1)) {

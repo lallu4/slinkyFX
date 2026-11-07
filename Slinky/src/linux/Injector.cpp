@@ -76,11 +76,6 @@ std::string Dirname(const std::string& p) {
     return slash == std::string::npos ? std::string(".") : p.substr(0, slash);
 }
 
-std::string Basename(const std::string& p) {
-    size_t slash = p.rfind('/');
-    return slash == std::string::npos ? p : p.substr(slash + 1);
-}
-
 bool ProcessAlive(pid_t pid) {
     return kill(pid, 0) == 0 || errno == EPERM;
 }
@@ -167,24 +162,9 @@ bool LibraryLoadBias(const std::vector<MapEntry>& maps, const std::string& file,
 
 // ---------------------------------------------------------------------------
 // ELF dynamic-symbol lookup ("dlopen" / "dlclose" in the target's own libc)
+// The tables are scanned linearly: the hash buckets would only save time, and a
+// wrong count derived from them is how a symbol gets missed.
 // ---------------------------------------------------------------------------
-unsigned long GnuHash(const char* name) {
-    unsigned long h = 5381;
-    for (const unsigned char* p = (const unsigned char*)name; *p; ++p)
-        h = (h << 5) + h + *p;
-    return h;
-}
-
-unsigned long ElfHash(const char* name) {
-    unsigned long h = 0, g = 0;
-    for (const unsigned char* p = (const unsigned char*)name; *p; ++p) {
-        h = (h << 4) + *p;
-        if ((g = h & 0xF0000000)) h ^= g >> 24;
-        h &= ~g;
-    }
-    return h;
-}
-
 template <typename T>
 bool ReadAt(FILE* f, long off, T& out) {
     return fseek(f, off, SEEK_SET) == 0 && fread(&out, 1, sizeof(T), f) == sizeof(T);
@@ -202,13 +182,12 @@ bool ResolveSymbolInFile(const std::string& file, const char* symName,
         eh.e_ident[EI_CLASS] == ELFCLASS64 && eh.e_ident[EI_DATA] == ELFDATA2LSB) {
 
         long dynOff = -1;
-        unsigned long long dynVaddr = 0, dynFilesz = 0;
+        unsigned long long dynFilesz = 0;
         for (int i = 0; i < eh.e_phnum; ++i) {
             Elf64_Phdr ph;
             if (!ReadAt(f, (long)(eh.e_phoff + (unsigned long)i * eh.e_phentsize), ph)) break;
             if (ph.p_type == PT_DYNAMIC) {
                 dynOff = (long)ph.p_offset;
-                dynVaddr = ph.p_vaddr;
                 dynFilesz = ph.p_filesz;
                 break;
             }
@@ -452,15 +431,17 @@ static void InstallEmergencyHandlers() {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGHUP, &sa, nullptr);
     sigaction(SIGABRT, &sa, nullptr);
+    // The four ways this process can die on its own. They matter more than the four above: at this moment the
+    // game has every thread stopped by PTRACE_ATTACH and an int3 planted in code it shares with the rest of the
+    // system, so a loader that dies without putting those back leaves Minecraft frozen for good - the player
+    // loses the run, not just the client. Everything EmergencyDetach does is raw syscalls, so it is safe to run
+    // from inside these signals.
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGILL, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
 }
 
-
-long PtracedPeek(pid_t tid, unsigned long long addr, long& okOut) {
-    errno = 0;
-    long v = ptrace(PTRACE_PEEKDATA, tid, (void*)addr, nullptr);
-    okOut = (errno == 0) ? 1 : 0;
-    return v;
-}
 
 bool PtracedPoke(pid_t tid, unsigned long long addr, unsigned long long value) {
     return ptrace(PTRACE_POKEDATA, tid, (void*)addr, (void*)value) == 0;
@@ -517,7 +498,11 @@ bool AttachAll(RemoteSession& s) {
         s.attached.push_back(tid);
     }
     if (s.attached.empty()) {
-        FailStage("PTRACE_ATTACH: 0/%zu threads attached (attach errors=%d, wait errors=%d)",
+        // Every attach refused is this one kernel rule in almost every case: with kernel.yama.ptrace_scope above
+        // 0 a process may only reach into a child of its own, and the game never is one. The numbers say nothing
+        // to a player, the command does, so the stage text carries it - this string is what the loader prints.
+        FailStage("PTRACE_ATTACH refused on 0/%zu threads (attach errors=%d, wait errors=%d). "
+                  "If the answer is permission, run:  sudo sysctl kernel.yama.ptrace_scope=0",
                   tids.size(), attachFails, waitFails);
         errno = lastErrno ? lastErrno : EPERM;
         return false;
@@ -679,6 +664,13 @@ bool RemoteCall(pid_t pid, unsigned long long fn, unsigned long long arg1,
 
     // Shared wait loop for both stages: re-inject every real signal, succeed
     // only on our SIGTRAP.
+    //
+    // It waits on -1 rather than on the victim alone, and that is the whole reason a bootstrap that calls
+    // pthread_create used to hang here: a thread born inside a traced process is taken over by the same
+    // tracer, and unless somebody waits for it and releases it, it is born stopped. The dlopen then "succeeds"
+    // over a library whose worker never ran, no thread ever reaches the trap byte, and the loader sits out its
+    // budget while the game looks untouched - which is exactly what the player saw. Strays are detached; only
+    // the victim's stops (or the game's own death) decide the outcome.
     bool trapped = false;
     std::string waitWhy;
     auto waitForTrap = [&](unsigned long long budgetMs) {
@@ -688,9 +680,22 @@ bool RemoteCall(pid_t pid, unsigned long long fn, unsigned long long arg1,
         while (GetTickCount64() < dl) {
             if (!ProcessAlive(pid)) { waitWhy = "target process died while waiting for trap"; return; }
             int st = 0;
-            pid_t w = waitpid(victim, &st, WNOHANG | __WALL);
+            pid_t w = waitpid(-1, &st, WNOHANG | __WALL);
             if (w == 0) { Sleep(10); continue; }
             if (w < 0) { waitWhy = "waitpid error"; return; }
+            if (w != victim) {
+                if (WIFEXITED(st) || WIFSIGNALED(st)) {
+                    if (w == pid) { waitWhy = "target process died while waiting for trap"; return; }
+                    continue;
+                }
+                if (WIFSTOPPED(st)) {
+                    // Released with the signal it stopped on, delivered: detaching with 0 would swallow a real
+                    // SIGIO or a GC signal the JVM was waiting for, and the game would hang looking idle.
+                    int sig = (WSTOPSIG(st) == SIGTRAP || WSTOPSIG(st) == SIGSTOP) ? 0 : WSTOPSIG(st);
+                    ptrace(PTRACE_DETACH, w, nullptr, (void*)(long)sig);
+                }
+                continue;
+            }
             if (WIFEXITED(st)) {
                 char b[80];
                 snprintf(b, sizeof(b), "victim thread exited (code %d) during remote call", WEXITSTATUS(st));
@@ -1074,7 +1079,16 @@ bool Injector::InjectDll(pid_t pid, const std::string& soPath) {
 
     unsigned long long dlopenFn = 0, dlcloseFn = 0;
     if (!ResolveRemoteSymbol(pid, "dlopen", dlopenFn)) {
-        ConsoleUI::PrintError("Finding libc dlopen", errno ? errno : ENOENT);
+        const int err = errno;
+        if (err == EPERM || err == EACCES) {
+            // Reading the game's memory is the step Linux refuses, and the name in the message - "dlopen" - is
+            // the least useful thing in it: the player is not missing a library, the kernel is guarding a
+            // process. Say which guard and how to lower it.
+            ConsoleUI::PrintFailure(
+                "Linux refused to let this program look inside the game. Run:  sudo sysctl kernel.yama.ptrace_scope=0");
+            return false;
+        }
+        ConsoleUI::PrintError("Finding libc dlopen", err ? err : ENOENT);
         return false;
     }
     // dlclose is optional: without it a fresh injection still works, only
@@ -1149,52 +1163,114 @@ bool Injector::InjectDll(pid_t pid, const std::string& soPath) {
     return true;
 }
 
+namespace {
+
+// The client writes its own account of startup beside the file it was loaded from, in the folder this loader
+// made for the run. When startup does not finish that file is the only thing that says why, and a player can
+// copy a dozen lines but cannot guess a folder name out of a status line, so both go out here - and a run
+// that wrote nothing says that too, instead of leaving the gap between the two files unexplained.
+void PrintLogTail(const std::string& logPath) {
+    FILE* fp = fopen(logPath.c_str(), "r");
+    if (!fp) {
+        fprintf(stderr, "\nNothing was written to %s - the client never got as far as keeping a log.\n",
+                logPath.c_str());
+        return;
+    }
+
+    std::vector<std::string> lines;
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = '\0';
+        if (len > 0) {
+            lines.push_back(line);
+            if (lines.size() > 30) lines.erase(lines.begin());
+        }
+    }
+    fclose(fp);
+
+    if (lines.empty()) {
+        fprintf(stderr, "\nThe log at %s is empty.\n", logPath.c_str());
+        return;
+    }
+
+    fprintf(stderr, "\n--- last lines of %s ---\n", logPath.c_str());
+    for (const std::string& l : lines) fprintf(stderr, "%s\n", l.c_str());
+    fprintf(stderr, "--- end of log ---\n");
+}
+
+// A run that is working and a run that has stopped look identical here: one status line for the whole two and a
+// half minutes. The client's log grows while it works, so the newest line it wrote becomes the status. It is cut
+// short on purpose - the status is the last line of the redrawn block, and a line that wraps moves the cursor off
+// the row the redraw counts on.
+void ShowClientProgress(const std::string& log, std::string& shown) {
+    std::string line;
+    size_t end = log.size();
+    while (end > 0) {
+        size_t nl = log.rfind('\n', end - 1);
+        size_t start = (nl == std::string::npos) ? 0 : nl + 1;
+        std::string seg = log.substr(start, end - start);
+        size_t a = seg.find_first_not_of(" \t\r\n");
+        if (a == std::string::npos) { end = start; continue; }   // blank line; the one above it counts
+        line = seg.substr(a, seg.find_last_not_of(" \t\r\n") - a + 1);
+        break;
+    }
+    if (line.empty() || line == shown) return;
+    if (line.front() == '[') {
+        size_t close = line.find(']');
+        if (close != std::string::npos && close + 2 < line.size()) line = line.substr(close + 2);
+    }
+    if (line.size() > 60) line.resize(60);
+    shown = line;
+    ConsoleUI::SetStatusText(shown.c_str());
+}
+
+} // namespace
+
 bool Injector::MonitorStartup(pid_t pid, const std::string& logPath) {
-    // The status line stays on "Injecting into Minecraft..." while the client boots.
+    // The status line stays on "Injecting into Minecraft..." until the client starts writing, and then follows
+    // the log - see ShowClientProgress.
     const unsigned long long start = GetTickCount64();
     const unsigned long long timeoutMs = 150000;
     // Bootstrap.start can wait up to 2 minutes for the client thread, same
     // budget as the Windows monitor.
 
-    auto checkLog = [&](std::string& match) -> bool {
-        std::string content;
-        if (!ReadWholeFile(logPath, content)) return false;
-        struct { const char* needle; const char* key; } rules[] = {
-            { "FINAL STATUS: RUNNING",         "RUNNING" },
-            { "FINAL STATUS: RELOADED",        "RELOADED" },
-            { "FINAL STATUS: ALREADY_RUNNING", "ALREADY_RUNNING" },
-            { "FINAL STATUS: FAILED",          "FAILED" },
-        };
-        for (auto& rule : rules) {
-            if (content.find(rule.needle) != std::string::npos) { match = rule.key; return true; }
-        }
-        return false;
+    struct { const char* needle; const char* key; } rules[] = {
+        { "FINAL STATUS: RUNNING",         "RUNNING" },
+        { "FINAL STATUS: RELOADED",        "RELOADED" },
+        { "FINAL STATUS: ALREADY_RUNNING", "ALREADY_RUNNING" },
+        { "FINAL STATUS: FAILED",          "FAILED" },
     };
 
+    std::string shown;
     while (GetTickCount64() - start < timeoutMs) {
         if (!ProcessAlive(pid)) {
             ConsoleUI::PrintFailure("Game process closed before startup finished.");
+            PrintLogTail(logPath);
             return false;
         }
 
-        std::string status;
-        if (checkLog(status)) {
-            if (status == "RUNNING") {
-                return true;
-            } else if (status == "RELOADED") {
-                return true;
-            } else if (status == "ALREADY_RUNNING") {
-                ConsoleUI::PrintFailure("Already running. Unload from menu first.");
-                return false;
-            } else {
+        std::string content;
+        if (ReadWholeFile(logPath, content)) {
+            for (auto& rule : rules) {
+                if (content.find(rule.needle) == std::string::npos) continue;
+                std::string key(rule.key);
+                if (key == "RUNNING" || key == "RELOADED") return true;
+                if (key == "ALREADY_RUNNING") {
+                    ConsoleUI::PrintFailure("Already running. Unload from menu first.");
+                    return false;
+                }
                 ConsoleUI::PrintFailure("Minecraft could not start the client.");
+                PrintLogTail(logPath);
                 return false;
             }
+            ShowClientProgress(content, shown);
         }
         Sleep(150);
     }
 
     ConsoleUI::PrintFailure("Library loaded but the client never confirmed startup.");
+    PrintLogTail(logPath);
     return false;
 }
 

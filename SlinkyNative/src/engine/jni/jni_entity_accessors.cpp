@@ -2,8 +2,16 @@
 // cflags: /Ob1 /clang:-fno-slp-vectorize
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
-struct Rot { float yaw, pitch; };
-struct Vec3 { double x, y, z; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(Vec3, vec3_make, (double x, double y, double z));
 extern "C" void java_set_entity_player_item_in_use_count(Jvm *jvm, void *entity_player, int value) {
     JCALL(jvm, SetIntField, entity_player, ids->EntityPlayer_itemInUseCount, value);
@@ -127,7 +135,11 @@ extern "C" Vec3 java_get_entity_other_player_mp_other_player_mpx(Jvm *jvm, jobje
 }
 
 // ---- hand-written (BlockPos / Vec3i glue, multi-argument calls)
-struct I3 { int x, y, z; };
+struct I3 { int x, y, z;
+#ifdef __linux__
+    ~I3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(jobject, get_block_from_pos, (Jvm *j, void *block_pos));
 
 extern "C" __attribute__((noinline)) jobject java_block_pos_init(Jvm *jvm, int x, int y, int z) {

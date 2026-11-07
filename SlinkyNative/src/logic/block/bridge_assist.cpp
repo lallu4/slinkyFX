@@ -6,15 +6,30 @@
 //   0x2e7b0 helper:  is the ground under the next position air?
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
-struct Range { float lo, hi; };
-struct Box { double x0, y0, z0, x1, y1, z1; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Box { double x0, y0, z0, x1, y1, z1;
+#ifdef __linux__
+    ~Box() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct PlaceEvt { char padding_00[8]; Ctx *ctx; unsigned char cancelled; unsigned char allow; };
 typedef double v2d __attribute__((vector_size(16), aligned(16)));
 
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char bridge_assist_module_descriptor[];           // Bridge Assist module descriptor
 extern "C" int bridge_assist_activation_mode;              // activation mode
 extern "C" unsigned char bridge_assist_sneak_held_by_us;    // sneak held by us

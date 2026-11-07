@@ -3,12 +3,21 @@
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
 
-struct F2 { float a, b; };
+struct F2 { float a, b;
+#ifdef __linux__
+    ~F2() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void *, get_minecraft, (void *jvm));
 FN(void *, get_local_player, (void *jvm, void *minecraft));
-FN(unsigned long long, get_entity_rotation, (void *jvm, void *entity));               // packed Rot
-FN(void, set_entity_rotation, (void *jvm, void *entity, unsigned long long rot));
-FN(void, set_entity_prev_rotation, (void *jvm, void *entity, unsigned long long rot));
+FN(Rot, get_entity_rotation, (void *jvm, void *entity));
+FN(void, set_entity_rotation, (void *jvm, void *entity, Rot rot));
+FN(void, set_entity_prev_rotation, (void *jvm, void *entity, Rot rot));
 FN(float, java_get_entity_player_speed_on_ground, (void *jvm, void *entity_player));                           // tagged flag float
 FN(void, java_set_entity_player_speed_on_ground, (void *jvm, void *entity_player, float value));
 FN(void *, java_get_entity_player_inventory, (void *jvm, void *entity_player));
@@ -25,7 +34,7 @@ FN(void *, vector_find_insert, (void *t, int elem, void *hdr, void *e, void *cmp
 FN(void *, vector_erase, (void *vec, int elem, void *hdr, void *key));
 FN(void *, binary_search, (void *vec, int elem, void *hdr, void *e, void *cmp));
 
-extern "C" unsigned long long silent_rotation_current, rotation_hotbar_saved_current_rotation;   // saved / current rotation
+extern "C" Rot silent_rotation_current, rotation_hotbar_saved_current_rotation;   // saved / current rotation
 extern "C" unsigned char silent_rotation_active_flag, render_rotation_dirty, rotation_hotbar_swap_pending;
 extern "C" void *rotation_hotbar_slot_owner;                             // slot owner
 extern "C" void *rotation_hotbar_module_that_switched_slot;                             // module that switched the slot
@@ -186,7 +195,11 @@ extern "C" void release_tracked_owner() {
 }
 
 // ---- "moving toward the target?" test, computed once per tick (state bit 0) ----
-struct V3a { double x, y, z; };
+struct V3a { double x, y, z;
+#ifdef __linux__
+    ~V3a() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void *, java_get_minecraft_object_mouse_over, (void *jvm, void *minecraft));
 FN(int, java_get_moving_object_position_type_ordinal, (void *jvm, void *moving_object_position));
 FN(void *, java_get_moving_object_position_hit_vec, (void *jvm, void *moving_object_position));
@@ -204,7 +217,7 @@ FN(void *, java_get_game_settings_right_key, (void *jvm, void *game_settings));
 FN(unsigned char, is_key_down, (void *jvm, void *object));
 FN(float, java_get_entity_living_base_move_forward, (void *jvm, void *entity_living_base));
 FN(float, java_get_entity_living_base_move_strafing, (void *jvm, void *entity_living_base));
-FN(V3a, horizontal_motion, (unsigned long long rot, float fwd, float strafe, float speed));
+FN(V3a, horizontal_motion, (Rot rot, float fwd, float strafe, float speed));
 FN(V3a, java_get_entity_motion_x, (void *jvm, void *entity));
 FN(V3a, vec3_add, (V3a a, V3a b));
 FN(double, vec3_distance_sq, (V3a a, V3a b));
@@ -224,7 +237,7 @@ extern "C" void tick_pre_click(Ctx *ctx, TickState *st) {
         void *inv = get_game_settings(jvm, ctx->minecraft);
         void *game_settings_key_bindings = java_get_game_settings_forward_key(jvm, inv), *key_binding = java_get_game_settings_back_key(jvm, inv), *i2 = java_get_game_settings_left_key(jvm, inv), *i3 = java_get_game_settings_right_key(jvm, inv);
         is_key_down(jvm, game_settings_key_bindings); is_key_down(jvm, key_binding); is_key_down(jvm, i2); is_key_down(jvm, i3);
-        unsigned long long rot = get_entity_rotation(ctx->jvm, ctx->player);
+        Rot rot = get_entity_rotation(ctx->jvm, ctx->player);
         float fwd = java_get_entity_living_base_move_forward(ctx->jvm, ctx->player);
         V3a mv = horizontal_motion(rot, fwd, java_get_entity_living_base_move_strafing(ctx->jvm, ctx->player), speed);
         V3a motion = java_get_entity_motion_x(ctx->jvm, ctx->player);
@@ -243,8 +256,16 @@ extern "C" void tick_pre_click(Ctx *ctx, TickState *st) {
 }
 
 // ---- pick the aim target: crosshair entity, forced target, else nearest valid entity in FOV ----
-struct AB { V3a min, max; };
-struct Rot2 { float yaw, pitch; };
+struct AB { V3a min, max;
+#ifdef __linux__
+    ~AB() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot2 { float yaw, pitch;
+#ifdef __linux__
+    ~Rot2() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void *, java_get_moving_object_position_entity_hit, (void *jvm, void *moving_object_position));
 FN(void *, java_jni_is_instance_of_entity_other_player_mp, (void *jvm, void *candidate));
 FN(float, java_call_entity_living_base_get_health, (void *jvm, void *entity_living_base));
@@ -281,7 +302,7 @@ extern "C" bool target_clear(Ctx *ctx, Target *target) {
         ent = get_refill_state();
         env = ((Jvm *)ctx->jvm)->env;
         if (!ent) {
-            Rot2 rot = __builtin_bit_cast(Rot2, get_entity_rotation(ctx->jvm, ctx->player));
+            Rot rot = get_entity_rotation(ctx->jvm, ctx->player);
             void *list = java_get_world_player_entities(ctx->jvm, ctx->world);
             void *best = 0;
             double bestD = search_range_squared;

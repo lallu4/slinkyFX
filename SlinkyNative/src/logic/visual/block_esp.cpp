@@ -3,7 +3,11 @@
 //   +0x48 tick, +0x98 enable/disable, +0xa8 render, +0x188 block update, +0x1e8 shutdown
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Buf { void *p; unsigned long long n, cap; };
 struct Mesh {                    // 0x50 bytes
     int cx, cz;                  // chunk coordinates

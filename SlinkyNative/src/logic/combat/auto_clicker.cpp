@@ -2,9 +2,16 @@
 // randomised timing, released while a GUI is open.
 #include "slinky/engine.h"
 
-struct Rot { float yaw, pitch; };
-struct Range { float lo, hi; };
-
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" Rot auto_clicker_rotation_at_last_tick;              // rotation at the last tick
 extern "C" unsigned char auto_clicker_attack_bound_mouse;    // attack bound to mouse (-99 = button 1)
 extern "C" int auto_clicker_hit_type_under_crosshair;              // hit type under the crosshair

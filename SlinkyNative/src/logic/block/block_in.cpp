@@ -4,14 +4,34 @@
 #include "slinky/engine.h"
 
 typedef float v4f __attribute__((vector_size(16), aligned(16)));
-struct Vec3 { double x, y, z; };
-struct Box { Vec3 lo, hi; };
-struct Range { float lo, hi; };
-struct Pair { float x, y; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Box { Vec3 lo, hi;
+#ifdef __linux__
+    ~Box() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Pair { float x, y;
+#ifdef __linux__
+    ~Pair() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Offset3 { signed char dx, dy, dz; };
 struct Offset2 { signed char dx, dz; };
 
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 struct RotHook { char padding_00[8]; unsigned char override_yaw, override_pitch; char padding_0a[2]; Rot rot; };   // +0x08 / +0x0c
 

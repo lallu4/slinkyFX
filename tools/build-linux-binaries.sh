@@ -102,6 +102,7 @@ CXXFLAGS="--target=x86_64-unknown-linux-gnu --sysroot $SR
 -isystem $SR/usr/include/x86_64-linux-gnu
 -isystem $SR/usr/include
 -std=c++17 -fPIC -D_GNU_SOURCE=1
+-ffile-prefix-map=$ROOT/=
 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers"
 
 echo "[1/4] Compiling the bootstrap and the loader against Ubuntu 20.04 headers..."
@@ -139,7 +140,15 @@ echo "[2/4] Linking libslinky-native.so..."
     "$SR/usr/lib/x86_64-linux-gnu/crtn.o"
 
 echo "[3/4] Linking slinky-loader..."
-"$LLD" -pie --sysroot="$NEW" "${LOAD_PATHS[@]}" --dynamic-linker=/lib64/ld-linux-x86-64.so.2 \
+# The interpreter goes in through a response file, and only works there. Written on the command line, Git Bash
+# sees an argument that looks like a Unix path and rewrites it to a Windows one before ld.lld gets it, and lld
+# records what it was given: v1.6.0 shipped "C:/Program Files/Git/lib64/ld-linux-x86-64.so.2", which no Linux
+# system has, so the loader could not start anywhere. A file the linker reads itself never passes through the
+# shell, so the string survives; MSYS2_ARG_CONV_EXCL and MSYS_NO_PATHCONV were both tried and both either
+# changed nothing or broke the paths this script legitimately needs in Windows form. The gate further down
+# reads the value back out of the finished file, because the argument is not the evidence - the artifact is.
+printf '%s\n' '--dynamic-linker=/lib64/ld-linux-x86-64.so.2' > "$OUT/interp.rsp"
+"$LLD" -pie --sysroot="$NEW" "${LOAD_PATHS[@]}" "@$OUT/interp.rsp" \
     --no-undefined -z now --build-id=none \
     -o "$OUT/slinky-loader" \
     "$NEW/usr/lib/x86_64-linux-gnu/Scrt1.o" "$NEW/usr/lib/x86_64-linux-gnu/crti.o" \
@@ -185,11 +194,23 @@ done
 if ! "$READELF" -S "$OUT/libslinky-native.so" | grep -q "\.init_array"; then
     fail+=("libslinky-native.so has no .init_array, so the constructor would never run")
 fi
+
+# And the interpreter, read back out of the file rather than trusted to the argument that asked for it: it is
+# the one header a program cannot be started without, and this script got it wrong in 1.6.0.
+INTERP=$("$READELF" -l "$OUT/slinky-loader" | sed -n 's/.*Requesting program interpreter: \(.*\)\]/\1/p')
+echo "      slinky-loader:       starts through ${INTERP:-nothing}"
+[[ $INTERP == /lib64/ld-linux-x86-64.so.2 ]] ||
+    fail+=("slinky-loader starts through \"$INTERP\"; the dynamic linker has to be /lib64/ld-linux-x86-64.so.2")
+
 if [[ ${#fail[@]} -gt 0 ]]; then
     echo "[X] the two files ask for more than this release means to allow:" >&2
     for reason in "${fail[@]}"; do echo "    $reason" >&2; done
     exit 1
 fi
 
-echo "[4/4] build/linux-binaries/slinky-loader + build/linux-binaries/libslinky-native.so"
+# No path from this machine in either file - the same class of mistake as the interpreter above, and the same
+# reason: nothing here can run a Linux binary to find out.
+"$ROOT/tools/check-shipped-paths.sh" "$OUT/slinky-loader" "$OUT/libslinky-native.so"
+
+echo "[4/4] build/linux-binaries/slinky-loader + build/linux-binaries/libslinky-native.so, checked"
 echo "      the engine is build/linux-engine/libslinky-engine.so (tools/build-linux-engine.sh -Dist)"

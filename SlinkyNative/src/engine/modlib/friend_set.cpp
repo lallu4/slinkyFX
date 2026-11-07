@@ -1,6 +1,10 @@
 // 0x3b000: friend-list style 32-byte key set (sorted vector) with chat feedback
 #include "slinky/engine.h"
-struct Key { unsigned long long hi, lo; };
+struct Key { unsigned long long hi, lo;
+#ifdef __linux__
+    ~Key() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Ent { char b[0x20]; };
 extern "C" void *friend_set_friend_table; extern "C" char friend_set_table_meta[]; extern "C" int friend_set_dirty_count;
 extern "C" const char str_sect_aadded_s_as_friend[], str_sect_aremoved_s_as_friend[], empty_plural_suffix[], str_s_in_friend_set[], str_sect_aremoved_zu_friend_s[];
@@ -73,7 +77,8 @@ static inline __attribute__((always_inline)) unsigned char fold(unsigned char ch
 // resolve a (unique, case-insensitive) player-name prefix to its UUID; prints the reason on failure
 extern "C" unsigned char friend_resolve(void *cv, Key kk, Ent *eo, char *name) {
     C3b *c = (C3b *)cv;
-    Str k = __builtin_bit_cast(Str, kk);
+    Str k;
+    __builtin_memcpy(&k, &kk, sizeof k);
     Uid *out = (Uid *)eo;
     unsigned long long len = k.len;
     if (len >= 0x11) { jni_throw_format(c->jvm, str_sect_cusername_is_too_long); return false; }
@@ -134,7 +139,11 @@ extern "C" char *friend_set_count(void *, unsigned i) {
 }
 
 // add every player within `radius` blocks as a friend (optionally clearing the list first)
-struct V3b { double x, y, z; };
+struct V3b { double x, y, z;
+#ifdef __linux__
+    ~V3b() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(V3b, java_get_entity_pos_x, (void *jvm, void *entity));
 FN(unsigned char, entity_flags_has, (void *jvm, void *entity, int mask));
 FN(double, vec3_distance_sq, (V3b a, V3b b));

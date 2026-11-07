@@ -8,7 +8,6 @@
 #define H2(c) (c)
 
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char sprint_module_descriptor[];
 extern "C" unsigned char sprint_while_in_gui_value;   // "while_in_gui"
 extern "C" unsigned char sprint_while_using_item_value;   // "while_using_item"

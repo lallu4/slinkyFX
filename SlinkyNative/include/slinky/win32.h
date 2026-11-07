@@ -37,14 +37,7 @@ typedef LRESULT (*WNDPROC)(HWND, UINT, WPARAM, LPARAM);
 typedef DWORD (*THREAD_START)(LPVOID);
 
 struct FILETIME { DWORD lo, hi; };
-struct WIN32_FIND_DATAW {
-    DWORD attributes;
-    FILETIME created, accessed, written;
-    DWORD size_hi, size_lo, reserved0, reserved1;
-    wchar_t name[260];
-    wchar_t alt_name[14];
-};
-
+struct WIN32_FIND_DATAW { DWORD attributes; FILETIME created, accessed, written; DWORD size_hi, size_lo, reserved0, reserved1; wchar_t name[260]; wchar_t alt_name[14]; };
 #define INVALID_HANDLE ((HANDLE)(LONG_PTR)-1)
 #define GENERIC_READ 0x80000000u
 #define GENERIC_WRITE 0x40000000u

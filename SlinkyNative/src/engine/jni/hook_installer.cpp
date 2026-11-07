@@ -47,6 +47,7 @@ extern "C" const char str_slinkyhooks13[];    // "SlinkyHooks13"
 extern "C" const char ptr_to_hook_installer_class_file_slinkyhooks13[];    // jvmtiCapabilities: can_retransform_classes
 extern "C" const char ptr_to_class_file_load_hook[];    // jvmtiEventCallbacks (0x138 bytes): ClassFileLoadHook = class_file_load_hook
 extern "C" const jbyte hook_installer_class_file_slinkyhooks13[];   // class file of SlinkyHooks13
+extern "C" void class_hooks_capture_names(JNIEnv *env);   // classfile_hooks.cpp: the load-hook name table
 extern "C" const int hook_installer_its_length;       // its length
 FN(int, define_class_with_natives, (JNIEnv *env, const char *name, jobject loader, const jbyte *buf, jsize len, const JNINativeMethod *methods, jint n,
                jclass *out));
@@ -123,6 +124,10 @@ extern "C" int install_class_hooks(Jvm *jvm, JvmtiTable **jvmti) {
         return JVMTI_ERROR_BASE + err;
 
     build_records(ids, kHooks[ids->variant][ids->names]);
+    // The names the ClassFileLoadHook matches ordinary loads with (see classfile_hooks.cpp): taken here, on the
+    // engine thread, where calling Class.getName is safe - inside the load hook itself it would run Java code
+    // while the VM holds its class-loading lock.
+    class_hooks_capture_names(env);
     slinky_logf("classhooks: variant=%d names=%d canRenderName=%s%s doRender=%s%s playerDoRender=%s%s",
                 (int)ids->variant, (int)ids->names,
                 cs(ids->RendererLivingEntity_canRenderNameMethodName), cs(ids->RendererLivingEntity_canRenderNameMethodSignature),
@@ -134,17 +139,26 @@ extern "C" int install_class_hooks(Jvm *jvm, JvmtiTable **jvmti) {
     // Retransform one class at a time: classes the game has not loaded yet make the
     // all-at-once call fail, and they will be patched later by the still-enabled
     // ClassFileLoadHook when the game loads them (RenderPlayer/WorldClient on world join).
+    //
+    // A refusal here is about ONE class and must not be written to classfile_hooks_first_error, which is the
+    // ClassFileLoadHook's own switch: the hook returns immediately whenever that is non-zero. Poisoning it from
+    // this loop therefore switched off the patching of every class the game loads afterwards - and on Forge the
+    // interesting ones (WorldClient, RenderPlayer) are exactly those. It also made the whole install report
+    // failure while it had in fact installed, which sent the engine down its failed-start-up path with the hooks
+    // still armed and no way to take them back out. So: counted here, logged here, never sticky.
+    int refused = 0, last_refused = 0;
     for (int i = 0; i < 9; i++) {
         jclass one = hooked_class_minecraft[i].cls;
         slinky_logf("classhooks: retransform[%d]=%p", i, one);
         if (!one) continue;
         err = JVMTI(jvmti, RETRANSFORM_CLASSES, Retransform)(jvmti, 1, &one);
-        slinky_logf("classhooks: retransform[%d] err=%d first_error=%d", i, err, classfile_hooks_first_error);
-        if (err) __sync_val_compare_and_swap(&classfile_hooks_first_error, 0, JVMTI_ERROR_BASE + err);
+        slinky_logf("classhooks: retransform[%d] err=%d", i, err);
+        if (err) { refused++; last_refused = err; }
     }
     __atomic_exchange_n(&classfile_hooks_1_while_hooks_are_installed, 1, __ATOMIC_SEQ_CST);
     // Keep the ClassFileLoadHook enabled: classes that were not loaded yet (RenderPlayer,
     // WorldClient, ...) are only retransformed when the game loads them after joining a world.
-    slinky_logf("classhooks: installed, hook stays enabled, first_error=%d", classfile_hooks_first_error);
-    return classfile_hooks_first_error;
+    slinky_logf("classhooks: installed, hook stays enabled, %d class(es) refused retransform (last err=%d)",
+                refused, last_refused);
+    return 0;
 }

@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,7 +121,9 @@ static unsigned long long narrow_to_wide(const char *src, wchar_t *dst, unsigned
         else if ((c & 0xF0) == 0xE0) { cp = c & 0x0fu; extra = 2; }
         else if ((c & 0xF8) == 0xF0) { cp = c & 0x07u; extra = 3; }
         else { i++; continue; }   // invalid lead byte: dropped, as the converter does for unpaired input
-        if (src[i + 1] == 0) break;   // truncated sequence
+        // Only a multi-byte sequence can be truncated: a one-byte character is complete on its own, and
+        // testing src[i+1] for it used to drop the last character of every path - $HOME became /home/us.
+        if (extra && src[i + 1] == 0) break;
         i++;
         for (unsigned k = 0; k < extra; k++) {
             if (((unsigned char)src[i] & 0xC0) != 0x80) { cp = 0; break; }
@@ -476,7 +479,14 @@ extern "C" HANDLE CreateEventW(void *security, BOOL manual_reset, BOOL initial_s
     Handle *h = handle_new(H_EVENT);
     if (!h) { set_last_error(ERROR_NOT_ENOUGH_MEMORY); return 0; }
     pthread_mutex_init(&h->mutex, 0);
-    pthread_cond_init(&h->cond, 0);
+    // CLOCK_MONOTONIC, because WaitForSingleObject builds its deadline from it. With the default
+    // CLOCK_REALTIME the deadline (seconds since boot) is always in the past, so every bounded wait
+    // returned WAIT_TIMEOUT instantly and nothing that waits - the unload handshake above all - finished.
+    pthread_condattr_t cattr;
+    pthread_condattr_init(&cattr);
+    pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
+    pthread_cond_init(&h->cond, &cattr);
+    pthread_condattr_destroy(&cattr);
     h->manual_reset = manual_reset;
     h->signaled = initial_state;
     set_last_error(ERROR_SUCCESS);
@@ -546,9 +556,18 @@ static void *find_mapped_module(const char *name) {
     void *handle = 0;
     char line[1024];
     while (fgets(line, sizeof line, maps)) {
-        char *path = strrchr(line, ' ');
-        if (!path || !path[1] || path[1] == '[') continue;
-        path++;
+        // The name is the sixth field, not the text after the last space: a mapped path may contain spaces
+        // ("/home/me/My Games/..."), and only tab and newline are escaped there.
+        char *path = line;
+        for (int f = 0; f < 5; f++) {
+            while (*path == ' ') path++;
+            if (!*path) break;
+            while (*path && *path != ' ') path++;
+        }
+        while (*path == ' ') path++;
+        if (!*path || *path == '[' || *path == '\n') continue;
+        char *nl = strpbrk(path, "\r\n");   // fgets keeps the line ending, and dlopen() of "libjvm.so\n" finds
+        if (nl) *nl = 0;                    // nothing - this lookup silently failed for every mapped file
         char *slash = strrchr(path, '/');
         const char *base = slash ? slash + 1 : path;
         // "libjvm.so" for "jvm", "libglfw.so.3" for "glfw", and the plain name if that is how it is spelled
@@ -647,6 +666,13 @@ extern "C" wchar_t *_wgetenv(const wchar_t *name) {
     if (!name || wide_to_narrow(name, narrow, sizeof narrow) == (unsigned long long)-1) return 0;
     if (!narrow[0]) return 0;
     const char *v = getenv(!strcmp(narrow, "USERPROFILE") ? "HOME" : narrow);
+    if ((!v || !v[0]) && !strcmp(narrow, "USERPROFILE")) {
+        // A process started without an environment - a service-style launcher, an ssh session with a stripped
+        // env, a sandbox that passes nothing through - has no $HOME, and the passwd entry is where the home
+        // folder actually is. Without this the client simply stops finding its profiles.
+        struct passwd *pw = getpwuid(getuid());
+        if (pw && pw->pw_dir && pw->pw_dir[0]) v = pw->pw_dir;
+    }
     if (!v || !v[0]) return 0;
     if (narrow_to_wide(v, value, PATH_UNITS) == (unsigned long long)-1) return 0;
     return value;

@@ -71,19 +71,26 @@ extern "C" int snwprintf_s(wchar_t *buf, unsigned long long, unsigned long long,
     va_start(ap, fmt);
     return libc_vswprintf_s(*printf_options_ptr(), buf, 0x104, 0x104, ptr_to_rdata_2ba968, 0, ap);
 }
+// The image sized this for Windows: MAX_PATH is 260 there, so a longer result could never be opened and
+// failing here was the same dead end as failing at CreateFileW, one step later. On Linux the same 260 is the
+// binding limit while the kernel allows 4096, so an ordinary long home folder - a mounted game directory under
+// a deep path, say - lost its settings with no message at all. Size for what the caller has room for, and keep
+// the error code for a path that is too long for *anything*.
+#define PATH_MAX_UNITS 4096u
+
 extern "C" int settings_path_append(char **pstr, const char *suffix) {
     char *old = *pstr;
     if (!old || !suffix) return 0x3ed;
     unsigned long long a = libc_wcslen(old);     // wcslen of the wide path
     unsigned long long b = libc_strlen(suffix);   // strlen of the narrow suffix
-    // the buffer holds 261 wide chars: old + '\' + suffix + NUL
-    if (a > 0x104 || b > 0x104 || a + b + 2 > 0x105) return 0x3ee;
-    char *nb = (char *)libc_calloc(0x105, 2);    // 261 wide chars, as the image allocates
+    // old + '\' + suffix + NUL; UTF-8 needs at most one unit per byte
+    if (a + b + 2 > PATH_MAX_UNITS) return 0x3ee;
+    char *nb = (char *)libc_calloc(a + b + 2, 2);
     if (!nb) return 0x3ed;
     wchar_t *w = (wchar_t *)nb;
     for (unsigned long long i = 0; i < a; i++) w[i] = ((const wchar_t *)old)[i];
     w[a] = L'\\';
-    if (!MultiByteToWideChar(65001 /* CP_UTF8 */, 0, suffix, -1, w + a + 1, (int)(0x105 - (a + 1)))) {
+    if (!MultiByteToWideChar(65001 /* CP_UTF8 */, 0, suffix, -1, w + a + 1, (int)(b + 1))) {
         libc_free(nb);
         return 0x3ee;
     }

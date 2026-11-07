@@ -150,7 +150,12 @@ static int hooks_set(JNIEnv *env, bool enable) {
     }
     Jvm jvm = {java_natives_world_cached_jni_ids, env};
     err = enable ? install_class_hooks(&jvm, jvmti) : remove_class_hooks(env, jvmti);
-    if (enable && !err) g_jvmti = jvmti;
+    // Cache the environment whenever an install fetched it, not only when the install reported success. The
+    // capabilities, the callbacks and the enabled load hook all belong to this one environment, and a
+    // re-fetched one answers nothing: a disarm that ran on a fresh environment failed with
+    // MUST_POSSESS_CAPABILITY while the hooks were still in the game, which is the state the unload cannot escape
+    // from. Whatever the install returned, this is the only environment that can undo it.
+    if (enable) g_jvmti = jvmti;
     return err;
 }
 // set_java_hooks(env, enable): enable = 0 comes from slinky_disarm, the unload step of the engine thread.

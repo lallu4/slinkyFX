@@ -2,8 +2,16 @@
 // cflags: /Ob1 /clang:-fno-slp-vectorize
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
-struct Rot { float yaw, pitch; };
-struct Vec3 { double x, y, z; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" jobject java_new_c_init(Jvm *jvm, int a1) {
     return JCALLN(jvm, NewObject, ids->c, ids->c__init_, a1);
 }

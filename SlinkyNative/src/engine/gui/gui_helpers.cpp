@@ -24,9 +24,21 @@ extern "C" void text_filter_alnum(char *buf, char character) {
 }
 
 // ---- colour setting row: label, swatch (colour fading to 25 % alpha), click opens the colour picker ----
-struct R15 { float x, y, w, h; };
-struct V15 { float x, y, z, w; };
-struct Grad15 { float v[19]; };
+struct R15 { float x, y, w, h;
+#ifdef __linux__
+    ~R15() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct V15 { float x, y, z, w;
+#ifdef __linux__
+    ~V15() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Grad15 { float v[19];
+#ifdef __linux__
+    ~Grad15() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Col15 { float r, g, b; };
 struct GW15 { void *ig; double t; };
 FN(R15, add_cell, (GuiState *gui, float h));
@@ -36,10 +48,10 @@ FN(void, nvg_FillColor, (void *nvg, V15 *c));
 FN(void, nvg_StrokeColor, (void *nvg, V15 *c));
 FN(void, nvg_StrokeWidth, (void *nvg, float w));
 FN(void, nvg_FontSize, (void *nvg, float size));
-FN(float, draw_text, (GW15 *window, R15 r, int align, int col, const char *text));
+FN(float, draw_text, (GW15 *window, const R15 *r, int align, int col, const char *text));   // rect spelled as gui_layout.cpp defines it: MS hands big structs by address, SysV passes them in XMM
 FN(R15, make_rect, (float x, float y, float w, float h));
-FN(void, draw_rect_stroked, (GW15 *window, R15 r, float round));
-FN(void, draw_rect_rounded, (GW15 *window, R15 r, float round));
+FN(void, draw_rect_stroked, (GW15 *window, const R15 *r, float round));
+FN(void, draw_rect_rounded, (GW15 *window, const R15 *r, float round));
 FN(Grad15, nvg_linear_gradient, (void *nvg, float x0, float y0, float x1, float y1, V15 c0, V15 c1));
 FN(void, nvg_FillPaint, (void *nvg, Grad15 g));
 FN(unsigned char, clicked_inside_r_frame, (GuiState *gui, R15 r));
@@ -55,18 +67,18 @@ extern "C" unsigned char draw_color_swatch_row(GuiState *gui, GW15 *window, cons
     V15 tc = nvg_rgba_f(colour_level_0_866667_in_gui_helpers, colour_level_0_866667_in_gui_helpers, colour_level_0_866667_in_gui_helpers, 1.0f);
     nvg_FillColor(nvg, &tc);
     nvg_FontSize(nvg, font_size_15_in_gui_helpers);
-    draw_text(window, lr, 0, 0, label);
+    draw_text(window, &lr, 0, 0, label);
     R15 sw = make_rect(r.x + r.w + rect_extent_neg_40_in_gui_helpers, r.y, rect_extent_40_in_gui_helpers, 20.0f);
     V15 oc = nvg_rgba_f(colour_level_0_25098_in_gui_helpers, colour_level_0_25098_in_gui_helpers, colour_level_0_25098_in_gui_helpers, 1.0f);
     nvg_StrokeColor(nvg, &oc);
     nvg_StrokeWidth(nvg, stroke_width_2_in_gui_helpers);
     float rnd = ten_in_gui_helpers;
-    draw_rect_stroked(window, sw, rnd);
+    draw_rect_stroked(window, &sw, rnd);
     float x0 = sw.x, y0 = sw.y, x1 = sw.w + sw.x;
     V15 c0 = nvg_rgb_f(col->r, col->g, col->b);
     V15 c1 = nvg_rgba_f(col->r, col->g, col->b, 0.25f);
     nvg_FillPaint(nvg, nvg_linear_gradient(nvg, x0, y0, x1, y0, c0, c1));
-    draw_rect_rounded(window, sw, rnd);
+    draw_rect_rounded(window, &sw, rnd);
     R15 cr = make_rect((float)((double)r.w * factor_0_5_in_gui_helpers_a + (double)r.x), r.y, r.w * factor_0_5_in_gui_helpers_b, r.h);
     unsigned char clicked = clicked_inside_r_frame(gui, cr);
     if (clicked) {
@@ -77,18 +89,11 @@ extern "C" unsigned char draw_color_swatch_row(GuiState *gui, GW15 *window, cons
 }
 
 // ---- list setting: one row per entry (name, colour swatch for colour lists, remove cross), "Click to add" ----
-struct ListOps {
-    void *ctx;
-    unsigned long long (*count)(void *ctx);
-    const char *(*name)(void *ctx, unsigned long long i);
-    Col15 *(*color)(void *ctx, unsigned long long i);
-    void (*add)(void *ctx, const char *name, Col15 *color);
-    void (*remove)(void *ctx, unsigned long long i);
-};
-FN(float, draw_text_sized, (GW15 *window, R15 r, unsigned align, unsigned col, const char *text, const char *end));
+struct ListOps { void *ctx; unsigned long long (*count)(void *ctx); const char *(*name)(void *ctx, unsigned long long i); Col15 *(*color)(void *ctx, unsigned long long i); void (*add)(void *ctx, const char *name, Col15 *color); void (*remove)(void *ctx, unsigned long long i); };
+FN(float, draw_text_sized, (GW15 *window, R15 *r, unsigned align, unsigned col, const char *text, const char *end));
 FN(R15, inset_rect, (R15 r, float d));
 FN(V15, nvg_trans_rgba_f, (V15 c, float k));
-FN(bool, mouse_over_rect_r, (GuiState *gui, R15 r));
+FN(bool, mouse_over_rect_r, (GuiState *gui, const R15 *r));
 FN(void, nvg_BeginPath, (void *nvg));
 FN(void, nvg_MoveTo, (void *nvg, float x, float y));
 FN(void, nvg_LineTo, (void *nvg, float x, float y));
@@ -111,12 +116,12 @@ extern "C" bool draw_list_editor_row(GuiState *gui, GW15 *window, const char *la
     V15 tc = nvg_rgba_f(colour_level_0_866667_in_gui_helpers_a, colour_level_0_866667_in_gui_helpers_a, colour_level_0_866667_in_gui_helpers_a, 1.0f);
     nvg_FillColor(nvg, &tc);
     nvg_FontSize(nvg, font_size_15_in_gui_helpers_a);
-    draw_text(window, lr, 0, 0, label);
+    draw_text(window, &lr, 0, 0, label);
     R15 box = make_rect((float)((double)r.w * factor_0_5_in_gui_helpers + (double)r.x), r.y, r.w * colour_alpha_0_5_in_gui_helpers_a, r.h);
     V15 oc = nvg_rgba_f(colour_level_0_25098_in_gui_helpers_a, colour_level_0_25098_in_gui_helpers_a, colour_level_0_25098_in_gui_helpers_a, 1.0f);
     nvg_StrokeColor(nvg, &oc);
     nvg_StrokeWidth(nvg, stroke_width_2_in_gui_helpers_a);
-    draw_rect_stroked(window, box, corner_radius_10_in_gui_helpers_a);
+    draw_rect_stroked(window, &box, corner_radius_10_in_gui_helpers_a);
     float rh = box.h / (float)(n + 1);
     bool changed = false;
     if (n) {
@@ -129,13 +134,13 @@ extern "C" bool draw_list_editor_row(GuiState *gui, GW15 *window, const char *la
             if (len >= 0x14) len = 0x14;
             V15 nc = nvg_rgba_f(colour_level_0_866667_in_gui_helpers_a, colour_level_0_866667_in_gui_helpers_a, colour_level_0_866667_in_gui_helpers_a, 1.0f);
             nvg_FillColor(nvg, &nc);
-            draw_text_sized(window, row, 1, 0, name, name + len);
+            draw_text_sized(window, &row, 1, 0, name, name + len);
             if (kind == 1) {
                 R15 sw = inset_rect(R15{row.x, row.y, row.h, row.h}, inset_4);
                 Col15 *col = sel->color(sel->ctx, i);
                 V15 cc = nvg_rgb_f(col->r, col->g, col->b);
                 nvg_FillColor(nvg, &cc);
-                draw_rect_rounded(window, sw, corner_radius_5_in_gui_helpers);
+                draw_rect_rounded(window, &sw, corner_radius_5_in_gui_helpers);
                 if (clicked_inside_r_frame(gui, sw)) {
                     Col15 c = *col;
                     open_colour_picker_colour_c(gui, name, col, &c, (void *)copy_pair12);
@@ -144,7 +149,7 @@ extern "C" bool draw_list_editor_row(GuiState *gui, GW15 *window, const char *la
             }
             float y = row.y, h = row.h, x = row.w - h + row.x;
             R15 xr = {x, y, h, h};
-            V15 xc = mouse_over_rect_r(gui, xr) ? nvg_rgba_f(colour_level_0_933333_in_gui_helpers, colour_level_0_345098_in_gui_helpers, colour_level_0_345098_in_gui_helpers, 1.0f)
+            V15 xc = mouse_over_rect_r(gui, &xr) ? nvg_rgba_f(colour_level_0_933333_in_gui_helpers, colour_level_0_345098_in_gui_helpers, colour_level_0_345098_in_gui_helpers, 1.0f)
                                      : nvg_rgba_f(dim, dim, dim, 1.0f);
             nvg_StrokeColor(nvg, &xc);
             float in = (float)((double)h * factor_0_3_in_gui_helpers);
@@ -169,10 +174,10 @@ extern "C" bool draw_list_editor_row(GuiState *gui, GW15 *window, const char *la
         }
     }
     R15 add = make_rect(box.x, (float)n * rh + box.y, box.w, rh);
-    float k = mouse_over_rect_r(gui, add) ? gui_list_add_hover_grey_level : gui_list_add_idle_grey_level;
+    float k = mouse_over_rect_r(gui, &add) ? gui_list_add_hover_grey_level : gui_list_add_idle_grey_level;
     V15 ac = nvg_rgba_f(k, k, k, 1.0f);
     nvg_FillColor(nvg, &ac);
-    draw_text(window, add, 1, 0, str_click_to_add);
+    draw_text(window, &add, 1, 0, str_click_to_add);
     if (clicked_inside_r_frame(gui, add)) {
         if (items) open_list_popup(gui, title, sel, filter, (void *)pick_add_highlight, items, p9);
         else start_timed_popup_drag_payload(gui, title, sel, filter, (void *)pick_add_shadow);

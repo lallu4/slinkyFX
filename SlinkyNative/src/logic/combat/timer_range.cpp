@@ -6,15 +6,25 @@
 #include "slinky/engine.h"
 
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
-struct Box { Vec3 lo, hi; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Box { Vec3 lo, hi;
+#ifdef __linux__
+    ~Box() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Target { char padding_00[8]; void *ent; double dist2; };
 struct FrameEvt { char padding_00[8]; Ctx *ctx; float partial; int padding_14; double dt; };
-
 struct PktHook { char padding_00[0x24]; int verdict; };
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char timer_range_module_descriptor[];           // Timer Range module descriptor
 extern "C" int timer_range_mode;              // mode
 extern "C" unsigned char timer_range_block_while_charging;    // block while charging

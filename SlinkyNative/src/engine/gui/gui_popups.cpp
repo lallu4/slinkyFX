@@ -41,7 +41,11 @@ extern "C" void numeric_text_filter(char *buf, char character) {
     if (np & nd) return;
     buf[n] = character;
 }
-struct R16 { long long a, b; };
+struct R16 { long long a, b;
+#ifdef __linux__
+    ~R16() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(unsigned char, clicked_inside_r_frame, (void *gui, R16 r));
 FN(void, start_dragging_item_b, (void *gui, void *item, void *other_object));
 FN(bool, dragged_item_is, (GuiState *gui, void *item));
@@ -50,30 +54,38 @@ extern "C" __attribute__((noinline)) bool drag_item(GuiState *gui, void *, R16 *
     return dragged_item_is(gui, b);
 }
 
-struct R16d { float x, y, w, h; };
-struct V4b { float x, y, z, w; };
-FN(float, draw_text, (void *window, R16d r, int a, int b, void *x));
+struct R16d { float x, y, w, h;
+#ifdef __linux__
+    ~R16d() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct V4b { float x, y, z, w;
+#ifdef __linux__
+    ~V4b() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+FN(float, draw_text, (void *window, const R16d *r, int a, int b, void *x));   // rect spelled as gui_layout.cpp defines it: MS hands big structs by address, SysV passes them in XMM
 FN(V4b, nvg_rgba_f, (float r, float g, float b, float a));
-FN(void, draw_accent_line, (void *window, R16d r, V4b c, float a, float b));
+FN(void, draw_accent_line, (void *window, R16d *r, V4b *c, float a, float b));
 extern "C" const float offset_1_in_gui_popups_b, gui_popup_title_grey_level, gui_popup_title_inset_a;
 extern "C" __attribute__((noinline)) void draw_tracked_text(GuiState *gui, void *object, const R16d *rp) {
     R16d r = *rp;
-    float f = draw_text(object, *rp, 1, 0, gui->edit_text) + offset_1_in_gui_popups_b;
+    float f = draw_text(object, rp, 1, 0, gui->edit_text) + offset_1_in_gui_popups_b;
     float k = gui_popup_title_grey_level;
     V4b c = nvg_rgba_f(k, k, k, 1.0f);
     R16d n = {f, r.y, r.w, r.h};
-    draw_accent_line(object, n, c, gui_popup_title_inset_a, 1.0f);
+    draw_accent_line(object, &n, &c, gui_popup_title_inset_a, 1.0f);
 }
 
 extern "C" const float one_in_gui_popups_c, gui_popup_text_grey_level, gui_popup_title_inset_b;
 extern "C" __attribute__((noinline)) void draw_clipped_text(GuiState *gui, void *object, const R16d *rp, int align) {
-    float f = draw_text(object, *rp, align, 0, gui->edit_text);
+    float f = draw_text(object, rp, align, 0, gui->edit_text);
     R16d r = *rp;
     f += one_in_gui_popups_c;
     float k = gui_popup_text_grey_level;
     V4b c = nvg_rgba_f(k, k, k, 1.0f);
     R16d n = {f, r.y, r.w, r.h};
-    draw_accent_line(object, n, c, gui_popup_title_inset_b, 1.0f);
+    draw_accent_line(object, &n, &c, gui_popup_title_inset_b, 1.0f);
 }
 FN(void, set_popup_open, (void *x, bool b));
 FN(double, time_now, ());
@@ -220,7 +232,11 @@ extern "C" void open_colour_picker_colour_c(GuiState *gui, void *object, void *o
 // ---- draw the open popup: title bar with close cross, then by kind (popup_kind): 1 text prompt, 2 colour
 // picker (hex field, HSL sliders, recent colours), 3 confirm, 4 searchable list. Closes it when done. ----
 struct GW16 { void *ig; double t; };
-struct Grad { float v[19]; };
+struct Grad { float v[19];
+#ifdef __linux__
+    ~Grad() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Hit { unsigned long long idx; const char *name; };
 FN(void, pop_layout_row, (GuiState *gui, int n));
 FN(R16d, add_cell, (GuiState *gui, float h));
@@ -228,10 +244,10 @@ FN(void, nvg_FillColor, (void *nvg, V4b *c));
 FN(void, nvg_StrokeColor, (void *nvg, V4b *c));
 FN(void, nvg_StrokeWidth, (void *nvg, float w));
 FN(void, nvg_FontSize, (void *nvg, float size));
-FN(void, draw_rect_rounded, (GW16 *window, R16d r, float round));
-FN(void, draw_rect_stroked, (GW16 *window, R16d r, float round));
-FN(void, begin_content, (GW16 *window, GuiState *gui, R16d r, float pad, float f));
-FN(bool, mouse_over_rect_r, (GuiState *gui, R16d r));
+FN(void, draw_rect_rounded, (GW16 *window, const R16d *r, float round));
+FN(void, draw_rect_stroked, (GW16 *window, const R16d *r, float round));
+FN(void, begin_content, (GW16 *window, GuiState *gui, R16d *r, float pad, float f));
+FN(bool, mouse_over_rect_r, (GuiState *gui, const R16d *r));
 FN(unsigned char, point_in_rect_local, (void *gui, R16d r)) __asm__("clicked_inside_r_frame");
 FN(void, nvg_BeginPath, (void *nvg));
 FN(void, nvg_MoveTo, (void *nvg, float x, float y));
@@ -253,7 +269,7 @@ FN(void, nvg_RoundedRect, (void *nvg, float x, float y, float w, float h, float 
 FN(float, libc_ceilf, (float x));
 FN(float, libc_floorf, (float x));
 FN(float, draw_section_label, (GuiState *gui, GW16 *window, const char *label));
-FN(bool, is_packet_cancelled, (GuiState *gui, GW16 *window, R16d r, unsigned idx, V4b *col));
+FN(bool, is_packet_cancelled, (GuiState *gui, GW16 *window, R16d *r, unsigned idx, V4b *col));
 FN(void, hex_colour_text_filter, (char *buf, char character));
 FN(float, end_layout_row, (GW16 *window, GuiState *gui));
 FN(void *, libc_calloc, (unsigned long long n, unsigned long long size));
@@ -301,8 +317,8 @@ static inline __attribute__((always_inline)) bool hsl_bar(GuiState *gui, GW16 *w
     void *nvg = window->ig;
     R16d r = add_cell(gui, font_size_15_in_gui_popups);
     nvg_FillPaint(nvg, nvg_linear_gradient(nvg, r.x, r.y, r.w + r.x, r.h + r.y, c0, c1));
-    draw_rect_rounded(window, r, corner_radius_5_in_gui_popups);
-    return is_packet_cancelled(gui, window, r, idx, &mid);
+    draw_rect_rounded(window, &r, corner_radius_5_in_gui_popups);
+    return is_packet_cancelled(gui, window, &r, idx, &mid);
 }
 extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
     gui->popup_animating = 1;
@@ -313,19 +329,19 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
     void *nvg = window->ig;
     V4b bg = nvg_rgba_f(colour_level_0_0784314_in_gui_popups, colour_level_0_0784314_in_gui_popups, colour_level_0_0784314_in_gui_popups, 1.0f);
     nvg_FillColor(nvg, &bg);
-    draw_rect_rounded(window, box, twenty_in_gui_popups);
-    begin_content(window, gui, box, corner_radius_8_in_gui_popups_c, 12.0f);
+    draw_rect_rounded(window, &box, twenty_in_gui_popups);
+    begin_content(window, gui, &box, corner_radius_8_in_gui_popups_c, 12.0f);
     pop_layout_row(gui, 1);
     void *tig = window->ig;
     R16d t = add_cell(gui, twenty_in_gui_popups);
     nvg_FontSize(tig, font_size_16_in_gui_popups);
     V4b tc = nvg_rgba_f(colour_level_0_866667_in_gui_popups_c, colour_level_0_866667_in_gui_popups_c, colour_level_0_866667_in_gui_popups_c, 1.0f);
     nvg_FillColor(tig, &tc);
-    draw_text(window, t, 0, 0, gui->popup_title);
+    draw_text(window, &t, 0, 0, gui->popup_title);
     // close cross in the title bar's right square
     float cx = t.w - t.h + t.x;
     R16d xr = {cx, t.y, t.h, t.h};
-    V4b xc = mouse_over_rect_r(gui, xr) ? nvg_rgba_f(colour_level_0_933333_in_gui_popups, colour_level_0_345098_in_gui_popups, colour_level_0_345098_in_gui_popups, 1.0f)
+    V4b xc = mouse_over_rect_r(gui, &xr) ? nvg_rgba_f(colour_level_0_933333_in_gui_popups, colour_level_0_345098_in_gui_popups, colour_level_0_345098_in_gui_popups, 1.0f)
                              : nvg_rgba_f(colour_level_0_6_in_gui_popups_a, colour_level_0_6_in_gui_popups_a, colour_level_0_6_in_gui_popups_a, 1.0f);
     nvg_StrokeColor(tig, &xc);
     nvg_StrokeWidth(tig, stroke_width_2_in_gui_popups_a);
@@ -349,7 +365,7 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
         V4b oc = nvg_rgba_f(colour_level_0_25098_in_gui_popups_a, colour_level_0_25098_in_gui_popups_a, colour_level_0_25098_in_gui_popups_a, 1.0f);
         nvg_StrokeColor(fig, &oc);
         nvg_StrokeWidth(fig, stroke_width_2_in_gui_popups_a);
-        draw_rect_stroked(window, f, corner_radius_8_in_gui_popups_c);
+        draw_rect_stroked(window, &f, corner_radius_8_in_gui_popups_c);
         res = 1;
         if (!dragged_item_is(gui, key)) break;
         f = inset_rect(f, inset_4_in_gui_popups_a);
@@ -366,11 +382,12 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
     case 2: {   // colour picker
         void *pig = window->ig;
         R16d f = add_cell(gui, row_height_24);
-        bool hov = mouse_over_rect_r(gui, f);
+        bool hov = mouse_over_rect_r(gui, &f);
         float fh = f.h;
         V4b sw = nvg_rgb_f(gui->popup_rgb.r, gui->popup_rgb.g, gui->popup_rgb.b);
         nvg_FillColor(pig, &sw);
-        draw_rect_rounded(window, R16d{f.x, f.y, fh, fh}, corner_radius_5_in_gui_popups);
+        R16d sq = {f.x, f.y, fh, fh};
+        draw_rect_rounded(window, &sq, corner_radius_5_in_gui_popups);
         V4b oc = nvg_rgba_f(colour_level_0_25098_in_gui_popups_a, colour_level_0_25098_in_gui_popups_a, colour_level_0_25098_in_gui_popups_a, 1.0f);
         nvg_StrokeColor(pig, &oc);
         nvg_StrokeWidth(pig, stroke_width_2_in_gui_popups_a);
@@ -380,7 +397,8 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
         nvg_FillColor(pig, &hc);
         float hx = f.x + fh + corner_radius_8_in_gui_popups_c;
         float hw = f.w - (f.x - hx);
-        float ex = draw_text(window, R16d{hx, f.y, hw, f.h}, 0, 0, (void *)str_str /* "#" */);
+        R16d hash = {hx, f.y, hw, f.h};
+        float ex = draw_text(window, &hash, 0, 0, (void *)str_str /* "#" */);
         hx -= ex;
         hw -= hx;
         R16d hr = {ex, f.y, hw, f.h};
@@ -411,7 +429,7 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
             float c = hov ? gui_popup_button_hover_grey_level : colour_level_0_6_in_gui_popups_a;
             V4b tc2 = nvg_rgba_f(c, c, c, 1.0f);
             nvg_FillColor(pig, &tc2);
-            draw_text(window, hr, 0, 0, color_hex_string_buffer);
+            draw_text(window, &hr, 0, 0, color_hex_string_buffer);
         }
         // hue: six gradient segments, rounded at the ends
         draw_section_label(gui, window, str_hue /* "Hue" */);
@@ -432,7 +450,7 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
             nvg_Fill(hig);
         }
         V4b cur = nvg_hsl(gui->popup_hsl.h, gui->popup_hsl.s, gui->popup_hsl.l);
-        bool ch = is_packet_cancelled(gui, window, hb, 0, &cur);
+        bool ch = is_packet_cancelled(gui, window, &hb, 0, &cur);
         draw_section_label(gui, window, str_saturation /* "Saturation" */);
         bool cs = hsl_bar(gui, window, 1, nvg_hsl(gui->popup_hsl.h, 0.0f, gui->popup_hsl.l),
                           nvg_hsl(gui->popup_hsl.h, colour_level_1_in_gui_popups_d, gui->popup_hsl.l), gui->popup_hsl.s);
@@ -457,7 +475,7 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
             unsigned long long p = gui_popups_recent_colour_ring_position + i + 8;
             unsigned long long idx = p < 8 ? p : gui_popups_recent_colour_ring_position + i;
             R16d cell = make_rect(x, rr.y, sz, rr.h);
-            float k = mouse_over_rect_r(gui, cell) ? gui_popup_hover_grey_level : colour_level_0_25098_in_gui_popups_a;
+            float k = mouse_over_rect_r(gui, &cell) ? gui_popup_hover_grey_level : colour_level_0_25098_in_gui_popups_a;
             V4b oc2 = nvg_rgba_f(k, k, k, 1.0f);
             nvg_StrokeColor(rig, &oc2);
             Col3b *e = &recent_colors_ring[idx];
@@ -483,15 +501,15 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
         nvg_FontSize(cig, font_size_15_in_gui_popups);
         V4b mc = nvg_rgba_f(colour_level_0_866667_in_gui_popups_c, colour_level_0_866667_in_gui_popups_c, colour_level_0_866667_in_gui_popups_c, 1.0f);
         nvg_FillColor(cig, &mc);
-        draw_text(window, f, 0, 0, gui->popup_message);
+        draw_text(window, &f, 0, 0, gui->popup_message);
         R16d b = add_cell(gui, row_height_30);
-        V4b bc = mouse_over_rect_r(gui, b) ? nvg_rgba_f(colour_level_0_933333_in_gui_popups, colour_level_0_345098_in_gui_popups, colour_level_0_345098_in_gui_popups, 1.0f)
+        V4b bc = mouse_over_rect_r(gui, &b) ? nvg_rgba_f(colour_level_0_933333_in_gui_popups, colour_level_0_345098_in_gui_popups, colour_level_0_345098_in_gui_popups, 1.0f)
                                 : nvg_rgba_f(colour_level_0_866667_in_gui_popups_c, colour_level_0_278431_in_gui_popups, colour_level_0_278431_in_gui_popups, 1.0f);
         nvg_FillColor(cig, &bc);
-        draw_rect_rounded(window, b, corner_radius_5_in_gui_popups);
+        draw_rect_rounded(window, &b, corner_radius_5_in_gui_popups);
         V4b wc = nvg_rgba_f(colour_level_1_in_gui_popups_d, colour_level_1_in_gui_popups_d, colour_level_1_in_gui_popups_d, 1.0f);
         nvg_FillColor(cig, &wc);
-        draw_text(window, b, 1, 0, (void *)str_continue /* "Continue" */);
+        draw_text(window, &b, 1, 0, (void *)str_continue /* "Continue" */);
         res = 0;
         if (!point_in_rect_local(gui, b)) break;
         ((void (*)(void *))gui->popup_callback)(gui->popup_context);
@@ -505,7 +523,7 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
         V4b oc = nvg_rgba_f(colour_level_0_25098_in_gui_popups_a, colour_level_0_25098_in_gui_popups_a, colour_level_0_25098_in_gui_popups_a, 1.0f);
         nvg_StrokeColor(lig, &oc);
         nvg_StrokeWidth(lig, stroke_width_2_in_gui_popups_a);
-        draw_rect_stroked(window, f, corner_radius_8_in_gui_popups_c);
+        draw_rect_stroked(window, &f, corner_radius_8_in_gui_popups_c);
         if (!dragged_item_is(gui, key)) break;
         f = inset_rect(f, inset_4_in_gui_popups_a);
         draw_tracked_text(gui, window, &f);
@@ -577,13 +595,13 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
                 cx2 = row.x;
             }
             R16d cell = {cx2, row.y, cw, row.h};
-            float k = mouse_over_rect_r(gui, cell) ? colour_level_1_in_gui_popups_d : colour_level_0_866667_in_gui_popups_c;
+            float k = mouse_over_rect_r(gui, &cell) ? colour_level_1_in_gui_popups_d : colour_level_0_866667_in_gui_popups_c;
             V4b ic = nvg_rgba_f(k, k, k, 1.0f);
             nvg_FillColor(tig2, &ic);
             Hit *h = &((Hit *)(((ListV *)gui->popup_list_view))->data)[i];
             unsigned long long hi = h->idx;
             const char *hn = h->name;
-            draw_text(window, cell, 0, 0, (void *)hn);
+            draw_text(window, &cell, 0, 0, (void *)hn);
             if (point_in_rect_local(gui, cell)) {
                 chosen = hn;
                 cidx = hi;
@@ -597,7 +615,7 @@ extern "C" void close_popup_animated(GuiState *gui, GW16 *window) {
             V4b mc = nvg_rgba_f(colour_level_0_6_in_gui_popups_a, colour_level_0_6_in_gui_popups_a, colour_level_0_6_in_gui_popups_a, 1.0f);
             nvg_FillColor(tig2, &mc);
             nvg_FontSize(tig2, font_size_15_in_gui_popups);
-            draw_text(window, mr, 0, 0, buf);
+            draw_text(window, &mr, 0, 0, buf);
         }
         res = 0;
         if (!chosen) break;
@@ -621,11 +639,11 @@ extern "C" bool draw_icon_button(GuiState *gui, GW16 *window, const char *text, 
     bool clicked = selectable ? point_in_rect_local(gui, *rect) : false;
     V4b bg = nvg_rgba_f(colour_level_0_25098_in_gui_popups, colour_level_0_25098_in_gui_popups, colour_level_0_25098_in_gui_popups, 1.0f);
     nvg_FillColor(nvg, &bg);
-    draw_rect_rounded(window, *rect, corner_radius_8_in_gui_popups);
+    draw_rect_rounded(window, rect, corner_radius_8_in_gui_popups);
     float k = selectable ? gui_popup_enabled_grey_level : gui_popup_disabled_grey_level;
     V4b fg = nvg_rgba_f(k, k, k, 1.0f);
     nvg_FillColor(nvg, &fg);
     nvg_FontSize(nvg, font_size_15_in_gui_popups_a);
-    draw_text(window, *rect, 1, 0, (void *)text);
+    draw_text(window, rect, 1, 0, (void *)text);
     return clicked;
 }

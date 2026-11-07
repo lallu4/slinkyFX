@@ -1,7 +1,11 @@
 // 0x48000: chest-GUI check (localized title compare) and randomized click delay
 #include "slinky/engine.h"
 #include "slinky/jids.h"
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void *, get_current_screen, (void *jvm, void *object));
 FN(unsigned char, java_jni_is_instance_of_gui_chest, (void *jvm, void *candidate));
 FN(void *, java_get_gui_chest_lower_chest_inventory, (void *jvm, void *gui_chest));
@@ -10,7 +14,7 @@ FN(void *, java_get_inventory_basic, (void *jvm, void *inventory_basic));
 FN(void *, java_call_static_stat_collector_translate_to_local, (void *jvm, void *stat_collector));
 FN(Rot, rot_make_floats, (float a, float b));
 FN(float, random_rotation, (Rot rotation));
-FN(void, slot_index, (int id));
+FN(Rot, slot_index, (int id));
 FN(int, libc_strncmp_alt, (const void *left, const void *right, unsigned long long n));
 extern "C" unsigned char chest_stealer_require_vanilla_title_value;
 extern "C" float chest_stealer_delay_after_open_value, chest_stealer_steal_delay, range_low_1_in_chest_gui, random_range_bound_1_5_in_chest_gui;
@@ -60,7 +64,11 @@ extern "C" void chest_gui_tick(Ev *event) {
 }
 
 // item id -> {tool kind, material tier}  (kind 1/14/16/22 = axe/shovel/pickaxe/sword, 15 = shears)
-struct ToolInfo { int kind, tier; };
+struct ToolInfo { int kind, tier;
+#ifdef __linux__
+    ~ToolInfo() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" ToolInfo chest_gui_title_id(int id) {
     switch (id) {
     case 0x100: return ToolInfo{16, 3};

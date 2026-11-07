@@ -1,10 +1,14 @@
 // Auto Soup - eat mushroom soup when health is low.
 #include "slinky/engine.h"
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 #include "slinky/jids.h"
 
 struct InHook { char padding_00[8]; void *mod; unsigned char use; };
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char auto_soup_module_descriptor[];           // Auto Soup module descriptor
 extern "C" float auto_soup_delay_scale;            // delay scale
 extern "C" unsigned char auto_soup_input_consumed;    // input consumed
@@ -48,10 +52,10 @@ FN(void *, get_game_settings, (void *jvm, void *object));
 FN(void *, java_get_game_settings_use_item_key, (void *jvm, void *game_settings));
 FN(void *, java_get_game_settings_key_8_or_9, (void *jvm, void *game_settings));
 FN(void, java_increment_key_binding_press_time, (void *jvm, void *key_binding));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(float, walk_update, (void *state, void *rng, double p));
-FN(unsigned char, walk_should_change, (void *state, void *rng, double p));
-FN(float, random_rotation, (void *rng));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(float, walk_update, (void *state, Rot rng, double p));
+FN(unsigned char, walk_should_change, (void *state, Rot rng, double p));
+FN(float, random_rotation, (Rot rng));
 
 extern "C" void auto_soup_input_hook(InHook *hook) {
     if (hook->mod != auto_soup_module_descriptor)
@@ -83,7 +87,7 @@ extern "C" void auto_soup_enable(EvHook *hook) {
 
 extern "C" float auto_soup_asm_pins_keep(float base) {
     float k = range_low_0_5_in_auto_soup;
-    void *rng = rot_make_floats(0.0f, k);
+    Rot rng = rot_make_floats(0.0f, k);
     char *st = auto_soup_rng_states;
     asm("" : "+r"(st));
 

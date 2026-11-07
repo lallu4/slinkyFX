@@ -3,7 +3,11 @@
 // ticks of acceleration (capped by "acceleration").
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct MoveHook { char padding_00[8]; Ctx *ctx; float strafe; float forward; float speed; unsigned char sprint; };  // +0x10/+0x14/+0x18/+0x1c
 
 extern "C" float fast_accel_acceleration_value;           // "acceleration"

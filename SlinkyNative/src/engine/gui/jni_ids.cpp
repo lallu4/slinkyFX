@@ -24,8 +24,16 @@ extern "C" void hex_colour_text_filter(char *buf, char character) {
 }
 
 // ---- colour-picker channel slider (track outline, knob, drag sets value idx in 0..1) ----
-struct R16h { float x, y, w, h; };
-struct V4h { float x, y, z, w; };
+struct R16h { float x, y, w, h;
+#ifdef __linux__
+    ~R16h() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct V4h { float x, y, z, w;
+#ifdef __linux__
+    ~V4h() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(V4h, nvg_rgba_f, (float r, float g, float b, float a));
 FN(void, nvg_StrokeColor, (void *nvg, V4h *c));
 FN(void, nvg_StrokeWidth, (void *nvg, float w));

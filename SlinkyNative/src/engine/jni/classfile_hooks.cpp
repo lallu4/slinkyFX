@@ -2,9 +2,16 @@
 // cflags: /Ob1 /clang:-fno-slp-vectorize
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
-struct Rot { float yaw, pitch; };
-struct Vec3 { double x, y, z; };
-
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" jobject get_minecraft(Jvm *jvm) {
     return JCALL(jvm, GetStaticObjectField, ids->Minecraft, ids->Minecraft_theMinecraft);
 }
@@ -110,7 +117,7 @@ extern "C" void java_call_minecraft_right_click_mouse(Jvm *jvm, void *minecraft)
 }
 
 // ---- hand-written
-FN(jobject, java_get_render_manager_instance, (Jvm *jvm, jobject render_manager));
+FN(jobject, java_get_render_manager_instance, (Jvm *jvm));
 
 extern "C" jobject get_current_screen(Jvm *jvm, jobject object) {
     jobject x = JCALLN(jvm, GetObjectField, object, (jfieldID)ids->Minecraft_currentScreen);
@@ -119,7 +126,7 @@ extern "C" jobject get_current_screen(Jvm *jvm, jobject object) {
 extern "C" jobject java_get_minecraft_render_manager(Jvm *jvm, jobject minecraft) {
     if (jvm->ids->variant != 0)
         return JCALL(jvm, GetObjectField, minecraft, (jfieldID)ids->Minecraft_renderManager);
-    return java_get_render_manager_instance(jvm, minecraft);
+    return java_get_render_manager_instance(jvm);
 }
 
 // ---- ClassFileLoadHook: rewrite the classes listed in the hook table, injecting "SlinkyHooks13"
@@ -135,8 +142,47 @@ extern "C" void slinky_logf(const char *fmt, ...);
 static unsigned char g_disarming;             // 1 while remove_class_hooks restores the original bytecode
 extern "C" HookCls hooked_class_minecraft, hooked_class_entity_renderer, hooked_class_render_manager, hooked_class_renderer_living_entity, hooked_class_render_player,
     hooked_class_net_handler_play_client, hooked_class_world_client, hooked_class_entity, hooked_class_entity_living_base;
+
+// The names, in internal form ("net/minecraft/client/world/WorldClient"), of the nine classes above, taken once
+// at install.
+//
+// The ClassFileLoadHook below identified a class only by IsSameObject against the `redefined` argument, and that
+// argument is NULL for an ordinary class load - the JVM sets it only when it replays the hook while
+// retransforming a class it already has. So every class the game loaded AFTER the install went in unpatched:
+// WorldClient and RenderPlayer, which on Forge are loaded when the player joins a world, and those two carry a
+// large part of what the modules sit on. The client looked alive in the menu and did nothing in the world.
+// Matching on `name` covers both kinds of load, and `redefined` stays as the fallback for a load whose name the
+// JVM does not give (null-package and some proxied loaders).
+#define HOOK_NAME_SLOTS 9
+#define HOOK_NAME_LEN 256
+static char hook_class_names[HOOK_NAME_SLOTS][HOOK_NAME_LEN];
+
+extern "C" void class_hooks_capture_names(JNIEnv *env) {
+    jclass classClass = (*env)->FindClass(env, "java/lang/Class");
+    if (!classClass) { (*env)->ExceptionClear(env); return; }
+    jmethodID getName = (*env)->GetMethodID(env, classClass, "getName", "()Ljava/lang/String;");
+    if (!getName) { (*env)->ExceptionClear(env); return; }
+    HookCls *slots = &hooked_class_minecraft;   // the nine are one contiguous array, see the retransform loop
+    for (int i = 0; i < HOOK_NAME_SLOTS; i++) {
+        hook_class_names[i][0] = 0;
+        if (!slots[i].cls) continue;
+        jobject nameObj = (*env)->CallObjectMethod(env, slots[i].cls, getName);
+        if (!nameObj) { (*env)->ExceptionClear(env); continue; }
+        const char *n = (*env)->GetStringUTFChars(env, (jstring)nameObj, nullptr);
+        if (n) {
+            unsigned long k = 0;
+            for (; n[k] && k < HOOK_NAME_LEN - 1; k++) hook_class_names[i][k] = (n[k] == '.') ? '/' : n[k];
+            hook_class_names[i][k] = 0;
+            (*env)->ReleaseStringUTFChars(env, (jstring)nameObj, n);
+        } else {
+            (*env)->ExceptionClear(env);
+        }
+        (*env)->DeleteLocalRef(env, nameObj);
+    }
+}
+
 extern "C" const char str_slinkyhooks13[];         // "SlinkyHooks13"
-FN(bool, compare_member_name, (MethodKey left, MethodPat right));
+FN(bool, compare_member_name, (MethodKey *left, MethodPat *right));   // spelled as classfile_patch_helpers.cpp defines it: MS hands big structs by address, SysV would pass them in registers
 struct HookTable; struct CP; struct RBuf22; struct WBuf22;
 FN(int, rewrite_instruction, (HookTable *t, CP *constant_pool, RBuf22 *in, WBuf22 *out));   // instruction patcher (below)
 FN(int, rewrite_class_file, (const unsigned char *data, int len, unsigned char **out, int *outLen, const char *hookCls,
@@ -163,7 +209,7 @@ extern "C" int match_method(HookTab *t, MethodKey *k, void **outFn, MethodPat **
             slinky_logf("patcmp: bad pattern name=%llx desc=%llx (skipped)", na, da);
             continue;
         }
-        if (compare_member_name(*k, *p)) {
+        if (compare_member_name(k, p)) {
             *outFn = (void *)rewrite_instruction;
             *outPat = p;
             break;
@@ -180,11 +226,21 @@ extern "C" void class_file_load_hook(JvmtiEnv_ **jvmti, JNIEnv *env, jclass rede
     // bytes back untouched makes the retransform a true restore. (The install also runs with the hook
     // active and g_disarming clear, so it still patches.)
     if (g_disarming) return;
-    HookCls *pctx;
+    HookCls *pctx = nullptr;
+    HookCls *slots = &hooked_class_minecraft;   // the nine, contiguous
+    if (redefined) {
 #define TRY(x) if ((*env)->IsSameObject(env, x.cls, redefined)) { pctx = &x; goto found; }
-    TRY(hooked_class_minecraft) TRY(hooked_class_entity_renderer) TRY(hooked_class_render_manager) TRY(hooked_class_renderer_living_entity) TRY(hooked_class_render_player)
-    TRY(hooked_class_net_handler_play_client) TRY(hooked_class_world_client) TRY(hooked_class_entity) TRY(hooked_class_entity_living_base)
+        TRY(hooked_class_minecraft) TRY(hooked_class_entity_renderer) TRY(hooked_class_render_manager) TRY(hooked_class_renderer_living_entity) TRY(hooked_class_render_player)
+        TRY(hooked_class_net_handler_play_client) TRY(hooked_class_world_client) TRY(hooked_class_entity) TRY(hooked_class_entity_living_base)
 #undef TRY
+    } else if (name) {
+        for (int i = 0; i < HOOK_NAME_SLOTS; i++) {
+            if (!slots[i].cls || !hook_class_names[i][0]) continue;
+            const char *a = name, *b = hook_class_names[i];
+            while (*a && *a == *b) { a++; b++; }
+            if (*a == 0 && *b == 0) { pctx = &slots[i]; goto found; }
+        }
+    }
     return;
 found:
     slinky_logf("classhook-seen: %s", name ? name : "?");
@@ -381,8 +437,8 @@ FN(int, classfile_write_u1, (WBuf22 *w, unsigned char b));
 FN(int, classfile_write_u2, (WBuf22 *w, unsigned short v));
 FN(int, constant_pool_member_ref, (CP *constant_pool, unsigned short idx, MemberRef *out));
 FN(int, constant_pool_member_ref2, (CP *constant_pool, unsigned short idx, MemberRef *out));
-extern "C" int compare_utf8_local(Utf8 left, const char *right) __asm__("compare_utf8");
-extern "C" bool compare_member_name_local(NameType left, MemberName right) __asm__("compare_member_name");
+extern "C" int compare_utf8_local(const Utf8 *left, const char *right) __asm__("compare_utf8");
+extern "C" bool compare_member_name_local(const NameType *left, MemberName *right) __asm__("compare_member_name");
 extern "C" int rewrite_instruction(HookTable *t, CP *cp, RBuf22 *in, WBuf22 *out) {
     unsigned char op;
     int error_code = classfile_read_u1(in, &op);
@@ -407,7 +463,7 @@ extern "C" int rewrite_instruction(HookTable *t, CP *cp, RBuf22 *in, WBuf22 *out
     for (unsigned long long i = 0; i < t->n; i++) {
         HookEnt *h = &t->e[i];
         if (h->kind != kind) continue;
-        if (compare_utf8_local(ref.cls, h->cls) != 0) continue;
+        if (compare_utf8_local(&ref.cls, h->cls) != 0) continue;
         unsigned long long np = (unsigned long long)h->name, dp = (unsigned long long)h->desc;
         static int site_logs;
         if (site_logs < 30) { site_logs++; slinky_logf("sitecmp: cls=%s kind=%d name=%p desc=%p", h->cls, h->kind, h->name, h->desc); }
@@ -415,7 +471,8 @@ extern "C" int rewrite_instruction(HookTable *t, CP *cp, RBuf22 *in, WBuf22 *out
             slinky_logf("sitecmp: bad site name=%llx desc=%llx (skipped)", np, dp);
             continue;
         }
-        if (!compare_member_name_local(ref.nt, MemberName{h->name, h->desc})) continue;
+        MemberName mn = {h->name, h->desc};
+        if (!compare_member_name_local(&ref.nt, &mn)) continue;
         error_code = classfile_write_u1(out, 0xb8);   // invokestatic
         if (error_code) return error_code;
         error_code = classfile_write_u2(out, *h->ref);

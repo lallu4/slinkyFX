@@ -6,9 +6,21 @@
 
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
 
-struct Vec3 { double x, y, z; };
-struct Color3 { float r, g, b; };
-struct Pair { float x, y; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Color3 { float r, g, b;
+#ifdef __linux__
+    ~Color3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Pair { float x, y;
+#ifdef __linux__
+    ~Pair() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Pointer {                    // 0x38 bytes at 0x3008b0
     double x, z, px, pz;            // current / previous position
     Color3 color;
@@ -17,7 +29,6 @@ struct Pointer {                    // 0x38 bytes at 0x3008b0
 };
 struct TickEvt { char padding_00[8]; Ctx *ctx; };
 struct RenderEvt { char padding_00[8]; double cam_x; char padding_10[8]; double cam_z; Ctx *ctx; void *screen; char padding_30[0x10]; float partial; };
-
 extern "C" unsigned long long pointer_count;     // count
 extern "C" Pointer pointer_entries[100];
 extern "C" float pointers_range;                  // range
@@ -66,7 +77,7 @@ FN(int, entity_name_colour, (void *jvm, void *entity));
 FN(Color3, minecraft_color_code_to_rgb, (int team));
 FN(void, libc_qsort, (void *base, unsigned long long n, unsigned long long size, int (*cmp)(const void *, const void *)));
 FN(int, compare_by_hurt_time_desc, (const void *left, const void *right));
-FN(Pair, rot_scale, (void *screen, float f));
+FN(Pair, rot_scale, (Pair screen, float f));
 FN(void, gl_array_xy_float2, ());
 FN(void, gl_array_color5, ());
 FN(void, gl_array_color6, ());
@@ -147,7 +158,9 @@ extern "C" void pointers_render(RenderEvt *h) {
     float fov = java_get_render_manager_player_view_x(ctx->jvm, minecraft);
     float yaw = java_get_render_manager_player_view_y(ctx->jvm, minecraft);
     gl_array_xy_float2();
-    Pair mid = rot_scale(h->screen, scale_0_5_in_pointers);
+    Pair scr;
+    __builtin_memcpy(&scr, &h->screen, sizeof scr);   // the slot holds the two floats packed, not a pointer
+    Pair mid = rot_scale(scr, scale_0_5_in_pointers);
     (*ptr_to_pGlPushMatrix)();
     const float one = one_in_pointers;
     if (pointers_style) {

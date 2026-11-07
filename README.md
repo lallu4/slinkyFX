@@ -20,6 +20,14 @@ starts the same native client on every one of them. If it cannot inject, it says
 so in the same place and the same shape as a successful injection, including a
 short close countdown, so a failure is never a silent window that disappears.
 
+If that scan is not finding your game - an instance started before the loader,
+a launcher that renames the window, a game running as administrator while the
+loader is not - both loaders also take the process id directly: start Minecraft,
+find its number in the launcher's log line or with `ps` (Task Manager's Details
+tab on Windows), then run `slinky-loader --pid <that number>`. The id is checked
+before anything is injected, so a wrong one is refused with a message rather than
+a library dropped into an unrelated program.
+
 Everything runs in user space. On Windows the loader writes into the game
 process with the normal Win32 process APIs; on Linux it attaches with ptrace
 and calls `dlopen` in the target. Linux does not need root and does not
@@ -59,6 +67,14 @@ differs is how it gets into the game. The Linux 1.7.10 column is new in 1.5.0.
 The Linux 1.8.9 column was carried by a Java client until 1.6.0, which is the
 release where Linux stopped having a second client: 1.7.10 and 1.8.9 now run the
 same C++ code on Linux as on Windows, as `libslinky-engine.so`.
+
+The Java the game runs on has to be 8 or newer, on any client and both versions.
+The piece of code the engine puts inside the game to reach its classes is built
+for that, and a 1.7.10 instance still set to a Java 7 runtime refuses it: the
+injection gets that far and stops, with no overlay and no key binds. Badlion and
+Lunar ship a runtime that is new enough; for vanilla and Forge, pick Java 8 in
+the launcher's Java tab. Java 7 support would mean rebuilding that piece for it,
+which is not something a config option can do.
 
 The native layer is built from `SlinkyNative/`. On Windows it produces the
 slinkyFX native engine (`slinky-native.dll`) and hooks the game directly. On

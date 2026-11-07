@@ -285,45 +285,33 @@ inline int _wcsicmp(const wchar_t* a, const wchar_t* b) {
 }
 
 // ---------------------------------------------------------------------------
-// Module introspection.  The module path is resolved by locating our own
-// address in /proc/self/maps (no dladdr/feature-macro games needed).
+// Module introspection.  The path of a module is read from the dynamic linker,
+// which is the one thing in the process that knows which file an address came
+// from; a scan of /proc/self/maps has to guess which segment of the file an
+// address sits in and loses when the linker splits the segment that carries the
+// library's own data.
 // ---------------------------------------------------------------------------
 namespace w32compat {
 
-inline void* ModuleAnchor() {
-    // Any address inside this .so works; function addresses are always mapped.
-    static int anchor = 0;
-    return (void*)&anchor;
+inline bool ImagePath(void* inside, std::string& out) {
+    Dl_info info;
+    if (!dladdr(inside, &info) || !info.dli_fname) return false;
+    out = info.dli_fname;
+    return !out.empty();
 }
 
-inline bool SelfPath(std::string& out) {
-    uintptr_t addr = (uintptr_t)ModuleAnchor();
-    FILE* f = fopen("/proc/self/maps", "r");
-    if (!f) return false;
-    char line[4096];
-    bool found = false;
-    while (fgets(line, sizeof(line), f)) {
-        unsigned long long start = 0, end = 0;
-        if (sscanf(line, "%llx-%llx", &start, &end) != 2) continue;
-        if (addr < start || addr >= end) continue;
-        char* arrow = strstr(line, " -> ");
-        const char* path = arrow ? arrow + 4 : strchr(line, '/');
-        if (!path) break;
-        size_t len = strlen(path);
-        while (len > 0 && (path[len - 1] == '\n' || path[len - 1] == '\r')) --len;
-        out.assign(path, len);
-        found = !out.empty();
-        break;
-    }
-    fclose(f);
-    return found;
-}
+// This library - the file libslinky-native.so was loaded from, never the game's java executable.
+inline bool SelfPath(std::string& out) { return ImagePath((void*)&SelfPath, out); }
 
 } // namespace w32compat
 
-inline DWORD GetModuleFileNameW(HMODULE /*hModule*/, wchar_t* buf, DWORD bufChars) {
+inline DWORD GetModuleFileNameW(HMODULE hModule, wchar_t* buf, DWORD bufChars) {
+    if (!buf || bufChars == 0) return 0;
+    // A Win32 HMODULE is a module's base address, and dladdr takes any address inside the image it belongs
+    // to, so the handle carries over as it is. Without one, Win32 would name the executable; here it names
+    // this library, because every caller in the bootstrap wants the folder the library was loaded from.
     std::string path;
-    if (!w32compat::SelfPath(path) || !buf || bufChars == 0) return 0;
+    if (!(hModule ? w32compat::ImagePath((void*)hModule, path) : w32compat::SelfPath(path))) return 0;
     std::wstring w = w32compat::Utf8ToWide(path);
     DWORD n = (DWORD)((w.size() < bufChars) ? w.size() : bufChars - 1);
     memcpy(buf, w.data(), n * sizeof(wchar_t));
@@ -355,9 +343,10 @@ inline HMODULE GetModuleHandleW(const wchar_t* /*name*/) {
     char line[4096];
     std::string found;
     while (fgets(line, sizeof(line), f)) {
-        char* p = strstr(line, "libjvm.so");
-        if (!p) continue;
-        char* slash = strchr(p, '/');
+        if (!strstr(line, "libjvm.so")) continue;
+        // The path is the last field and the only one that holds a slash: the permissions use dashes and
+        // the device uses a colon. Taking the slash after the name would look for one inside a file name.
+        char* slash = strchr(line, '/');
         if (!slash) continue;
         char* nl = strchr(slash, '\n');
         found.assign(slash, nl ? (size_t)(nl - slash) : strlen(slash));

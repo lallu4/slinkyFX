@@ -10,7 +10,6 @@ struct Note { int kind; char text[0x68]; float age; };     // 0x70 bytes
 struct ProfileEvt { char padding_00[8]; const char *name; unsigned status; };
 struct ErrorEvt { char padding_00[8]; int code; int padding_0c; const char *msg; };
 struct FriendEvt { char padding_00[8]; unsigned char added; };
-
 S(fmt_str_str);   // "%s %s"
 S(str_default_in_notifications);   // "Default"
 S(str_s_in_notifications);   // "%s"
@@ -28,8 +27,16 @@ S(str_enabled_in_notifications);   // "Enabled"
 S(str_disabled);   // "Disabled"
 S(str_s_u_mods);   // "%s %u mods"
 S(str_slinky_in_notifications);   // "SLINKY"
-struct Color { float r, g, b, a; };
-struct Rect { float x, y, w, h; };
+struct Color { float r, g, b, a;
+#ifdef __linux__
+    ~Color() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rect { float x, y, w, h;
+#ifdef __linux__
+    ~Rect() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Ui { void *dl; };
 struct TickHook { char padding_00[0x10]; unsigned flags; float dt; };
 struct DrawHook { char padding_00[0x10]; Ui *ui; };
@@ -48,8 +55,8 @@ FN(Color, nvg_trans_rgba_f, (Color c, float mul));
 FN(float, nvg_text_bounds, (void *nvg, float size, float wrap, const char *text, void *end, void *extra));
 FN(Rect, make_rect, (float x, float y, float w, float h));
 FN(void, nvg_FillColor, (void *nvg, Color c));
-FN(void, draw_rect_rounded, (Ui *ui, Rect r, float rounding));
-FN(void, draw_text, (Ui *ui, Rect r, int align, int flags, const char *text));   // "Press %s to open GUI"
+FN(void, draw_rect_rounded, (Ui *ui, const Rect *r, float rounding));   // rect spelled as gui_layout.cpp defines it: MS hands big structs by address, SysV passes them in XMM
+FN(void, draw_text, (Ui *ui, const Rect *r, int align, int flags, const char *text));   // "Press %s to open GUI"
 FN(const char *, mouse_button_name, (int key));
 extern "C" unsigned long long active_notification_count;      // count
 extern "C" Note notification_queue[10];
@@ -220,15 +227,15 @@ extern "C" void notifications_draw_slide_boxes(DrawHook *hook) {
         float w = nvg_text_bounds(d2, 0.0f, 0.0f, text, nullptr, nullptr) + offset_102;
         Rect box = make_rect(x, y, w, 42.0f);
         nvg_FillColor(d2, nvg_rgba_f(colour_level_0_0784314_in_notifications, colour_level_0_0784314_in_notifications, colour_level_0_0784314_in_notifications, 1.0f));
-        draw_rect_rounded(window, box, corner_radius_20_in_notifications);
+        draw_rect_rounded(window, &box, corner_radius_20_in_notifications);
         Rect bar = make_rect(box.x + rect_extent_8_in_notifications, box.y + rect_extent_8_in_notifications, rect_extent_70, box.h + rect_extent_neg_16_in_notifications);
         nvg_FillColor(d2, nvg_trans_rgba_f(c, colour_alpha_0_15_in_notifications));
-        draw_rect_rounded(window, bar, corner_radius_10_in_notifications);
+        draw_rect_rounded(window, &bar, corner_radius_10_in_notifications);
         nvg_FillColor(d2, c);
-        draw_text(window, bar, 1, 0, str_slinky_in_notifications);
+        draw_text(window, &bar, 1, 0, str_slinky_in_notifications);
         Rect body = make_rect(bar.x + bar.w + rect_extent_8_in_notifications, box.y, box.w - bar.w + rect_extent_neg_16_in_notifications, box.h);
         nvg_FillColor(d2, nvg_rgba_f(colour_level_0_866667_in_notifications, colour_level_0_866667_in_notifications, colour_level_0_866667_in_notifications, 1.0f));
-        draw_text(window, body, 0, 0, text);
+        draw_text(window, &body, 0, 0, text);
         y += alpha * factor_50_in_notifications;
     }
     nvg_GlobalAlpha(nvg, alpha_1_in_notifications);

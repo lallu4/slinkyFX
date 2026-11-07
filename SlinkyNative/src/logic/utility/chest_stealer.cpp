@@ -1,6 +1,11 @@
 // Chest Stealer - descriptor +0x1d8: when a container screen is open, (re)arm
 // the steal delay with a random factor in [1.0, 1.5].
 #include "slinky/engine.h"
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 
 S(str_container_chest);  // "container.chest"
 S(str_container_chestdouble);  // "container.chestDouble"
@@ -15,9 +20,9 @@ FN(void *, java_get_gui_chest_lower_chest_inventory, (void *jvm, void *scr));
 FN(void *, java_jni_is_instance_of_inventory_basic, (void *jvm, void *candidate));
 FN(void *, java_get_inventory_basic, (void *jvm, void *inventory_basic));
 FN(unsigned char, java_string_equal_translation_key, (void *jvm, void *title, const char *name));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(float, random_rotation, (void *rng));
-FN(void, slot_index, (int event));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(float, random_rotation, (Rot rng));
+FN(Rot, slot_index, (int event));
 
 extern "C" void chest_stealer_on_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;

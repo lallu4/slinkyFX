@@ -15,13 +15,21 @@ extern "C" void file_name_text_filter(char *buf, char character) {
     buf[n] = character;
 }
 
-struct R16c { float x, y, w, h; };
-struct V4 { float x, y, z, w; };
+struct R16c { float x, y, w, h;
+#ifdef __linux__
+    ~R16c() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct V4 { float x, y, z, w;
+#ifdef __linux__
+    ~V4() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(R16c, add_cell, (const void *src, float f));
 FN(V4, nvg_rgba_f, (float r, float g, float b, float a));
 FN(void, nvg_FillColor, (void *nvg, V4 *c));
 FN(void, nvg_FontSize, (void *nvg, float f));
-FN(float, draw_text, (void *window, R16c r, int a, int b, void *x));
+FN(float, draw_text, (void *window, const R16c *r, int a, int b, void *x));   // rect spelled as gui_layout.cpp defines it: MS hands big structs by address, SysV passes them in XMM
 extern "C" const float row_height_19, gui_section_label_top_margin, gui_section_label_grey_level, font_size_15_in_gui_text_a;
 extern "C" float draw_section_label(const void *src, void **window, void *other_object) {
     void *nvg = window[0];
@@ -31,7 +39,7 @@ extern "C" float draw_section_label(const void *src, void **window, void *other_
     V4 c = nvg_rgba_f(g, g, g, 1.0f);
     nvg_FillColor(nvg, &c);
     nvg_FontSize(nvg, font_size_15_in_gui_text_a);
-    return draw_text(window, r, 0, 0, other_object);
+    return draw_text(window, &r, 0, 0, other_object);
 }
 
 FN(void *, libc_malloc, (unsigned long long n));
@@ -178,7 +186,7 @@ extern "C" float draw_module_header(GuiState *gui, WT2 *window, ModHdr *m, const
         nvg_FontSize(nvg, fsz);
         V4 c = *col;
         nvg_FillColor(nvg, &c);
-        return draw_text(window, *r, 0, 0, (void *)text);
+        return draw_text(window, r, 0, 0, (void *)text);
     }
     R16c box = make_rect(r->x, r->y, r->h, r->h);
     float gap = gui_text_gap;
@@ -191,7 +199,7 @@ extern "C" float draw_module_header(GuiState *gui, WT2 *window, ModHdr *m, const
     nvg_FontSize(nvg, fsz);
     V4 c = *(hov ? hcol : col);
     nvg_FillColor(nvg, &c);
-    draw_text(window, lbl, 0, 0, (void *)text);
+    draw_text(window, &lbl, 0, 0, (void *)text);
     float k = hov ? gui_text_hover_grey_level : gui_text_idle_grey_level;
     V4 bc = nvg_rgba_f(k, k, k, 1.0f);
     nvg_FillColor(nvg, &bc);
@@ -248,7 +256,7 @@ extern "C" void draw_module_description(GuiState *gui, WT2 *window, void *cbArg,
     else if (key) tc = *(V4 *)&gui->accent_color;
     else tc = grey(colour_level_0_6_in_gui_text);
     nvg_FillColor(nvg, &tc);
-    draw_text(window, btn, 1, 1, (void *)(capturing ? str_press_a_key : mouse_button_name(key)));
+    draw_text(window, &btn, 1, 1, (void *)(capturing ? str_press_a_key : mouse_button_name(key)));
     if (clicked_inside_r_frame(gui, btn)) begin_drag(gui, cbArg, target);
     if (!key) {
         if (hold) *hold = 0;
@@ -268,13 +276,13 @@ extern "C" void draw_module_description(GuiState *gui, WT2 *window, void *cbArg,
     draw_rect_rounded(window, &hb, corner_radius_5_in_gui_text_a);
     V4 ht = mouse_over_rect_r(gui, &hb) ? grey(colour_level_0_866667_in_gui_text_a) : grey(colour_level_0_6_in_gui_text);
     nvg_FillColor(nvg, &ht);
-    draw_text(window, hb, 1, 1, (void *)str_hold_in_gui_text);
+    draw_text(window, &hb, 1, 1, (void *)str_hold_in_gui_text);
     if (clicked_inside_r_frame(gui, hb)) *hold ^= 1;
 }
 // labelled toggle row: label text, then the switch right of it
 extern "C" const float row_height_20_in_gui_text, gui_label_text_grey_level, font_size_15_in_gui_text, rect_extent_neg_40_in_gui_text, rect_extent_40_in_gui_text;
 FN(R16c, make_rect, (float x, float y, float w, float h));
-FN(bool, draw_animated_description_local, (GuiState *gui, WT2 *window, R16c r, Anim *an, unsigned char *val)) __asm__("draw_animated_description");
+FN(bool, draw_animated_description_local, (GuiState *gui, WT2 *window, R16c *r, Anim *an, unsigned char *val)) __asm__("draw_animated_description");
 extern "C" bool draw_toggle_row(GuiState *gui, WT2 *window, const char *label, Anim *an, unsigned char *val) {
     void *nvg = window->ig;
     R16c r = add_cell(gui, row_height_20_in_gui_text);
@@ -282,13 +290,14 @@ extern "C" bool draw_toggle_row(GuiState *gui, WT2 *window, const char *label, A
     V4 c = nvg_rgba_f(k, k, k, 1.0f);
     nvg_FillColor(nvg, &c);
     nvg_FontSize(nvg, font_size_15_in_gui_text);
-    draw_text(window, r, 0, 0, (void *)label);
-    return draw_animated_description_local(gui, window, make_rect(r.x + r.w + rect_extent_neg_40_in_gui_text, r.y, rect_extent_40_in_gui_text, r.h), an, val);
+    draw_text(window, &r, 0, 0, (void *)label);
+    R16c tg = make_rect(r.x + r.w + rect_extent_neg_40_in_gui_text, r.y, rect_extent_40_in_gui_text, r.h);
+    return draw_animated_description_local(gui, window, &tg, an, val);
 }
 
 // ---- float slider: label, track, animated fill + knob, drag/typing via draw_slider_track, value tooltip ----
 struct SAnim { unsigned char active; char padding_01[3]; float pos; double last; };
-FN(unsigned char, draw_slider_track, (GuiState *gui, R16c track, R16c hit, float lo, float hi, float step, float scale, SAnim *an,
+FN(unsigned char, draw_slider_track, (GuiState *gui, const R16c *track, const R16c *hit, float lo, float hi, float step, float scale, SAnim *an,
                           float *val));
 FN(float, limit_rotation_delta, (float lo, float hi, float x));   // clamp
 FN(float, lerp_clamped_float, (float a, float b, float t));
@@ -306,7 +315,7 @@ extern "C" unsigned char draw_slider_row(GuiState *gui, WT2 *window, const char 
     V4 tc = nvg_rgba_f(colour_level_0_866667_in_gui_text_c, colour_level_0_866667_in_gui_text_c, colour_level_0_866667_in_gui_text_c, 1.0f);
     nvg_FillColor(nvg, &tc);
     nvg_FontSize(nvg, font_size_15_in_gui_text_b);
-    draw_text(window, r, 0, 0, (void *)label);
+    draw_text(window, &r, 0, 0, (void *)label);
     float y = r.y + offset_10_in_gui_text_a + offset_neg_2_in_gui_text;
     double half = (double)r.w * factor_0_5_in_gui_text;
     float x0 = (float)((double)r.x + half);
@@ -331,7 +340,7 @@ extern "C" unsigned char draw_slider_row(GuiState *gui, WT2 *window, const char 
     nvg_BeginPath(nvg);
     nvg_Circle(nvg, fx, rnd + y, gui_slider_knob_radius);
     nvg_Fill(nvg);
-    unsigned char res = draw_slider_track(gui, track, r, lo, hi, step, scale, active, val);
+    unsigned char res = draw_slider_track(gui, &track, &r, lo, hi, step, scale, active, val);
     if (!active->active) {
         R16c h2 = r;
         if (!mouse_over_rect_r(gui, &h2) || gui->click_capture) return res;

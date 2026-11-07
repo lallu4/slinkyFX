@@ -7,18 +7,26 @@ extern "C" unsigned char safe_walk_require_not_forward_value;   // "require_not_
 extern "C" unsigned char safe_walk_require_holding_blocks_value;   // "require_holding_blocks"
 extern "C" unsigned char safe_walk_safe_walk_active;   // safe-walk active
 
-struct V3 { double x, y, z; };
+struct V3 { double x, y, z;
+#ifdef __linux__
+    ~V3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct WalkState { char padding_00[8]; Ctx *ctx; };
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char safe_walk_module_descriptor[];
 
-FN(unsigned long long, get_entity_rotation, (void *jvm, void *entity));   // packed rotation (pitch in high half)
+FN(Rot, get_entity_rotation, (void *jvm, void *entity));
 FN(float, java_get_entity_living_base_move_forward, (void *jvm, void *entity_living_base));
 FN(void *, item_held_hotbar_slot, (void *jvm, void *slot));
 FN(unsigned char, block_entity_id, (void *jvm, void *item));
 FN(unsigned char, java_get_entity_on_ground, (void *jvm, void *entity));
-FN(void, java_get_entity_motion_x, (V3 *out, void *entity, void *other_object));
+FN(V3, java_get_entity_motion_x, (void *jvm, void *entity));
 FN(void, java_set_entity_motion_x, (void *jvm, void *entity, V3 value));
 
 extern "C" void safe_walk_on_tick(WalkState *s) {
@@ -32,7 +40,7 @@ extern "C" void safe_walk_on_tick(WalkState *s) {
     if (ctx->in_game != 1)
         goto out;
     if (safe_walk_require_looking_down_value == 1) {
-        float pitch = __builtin_bit_cast(float, (unsigned)(get_entity_rotation(ctx->jvm, ctx->player) >> 32));
+        float pitch = get_entity_rotation(ctx->jvm, ctx->player).pitch;
         if (pitch < 65.0f)
             goto clear;
     }
@@ -51,8 +59,7 @@ extern "C" void safe_walk_on_tick(WalkState *s) {
     if (safe_walk_motion_multiplier_value == 1.0f)
         goto out;
     {
-        V3 v;
-        java_get_entity_motion_x(&v, ctx->jvm, ctx->player);
+        V3 v = java_get_entity_motion_x(ctx->jvm, ctx->player);
         double m = safe_walk_motion_multiplier_value;
         v.x *= m;
         v.z *= m;

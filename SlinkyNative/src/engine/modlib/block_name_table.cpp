@@ -2,7 +2,6 @@
 #include "slinky/engine.h"
 struct Ent { void *name; long long q; int d; int key; };
 struct Vec { unsigned long long size, cap; Ent *data; };
-
 extern "C" unsigned long long name_table_count, name_table_capacity;
 extern "C" Ent *name_table_entries;
 extern "C" unsigned char safe_walk_safe_walk_active;

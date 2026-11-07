@@ -19,10 +19,7 @@ extern "C" void widget_color(void *window, void *gui, ColorSetting *setting) {
 }
 // list setting: label, "add" popup title and character filter, entry kind (0 names, 1 names + colour), list callbacks,
 // and an optional provider of the candidate items offered by the "add" popup
-struct ListSetting {
-    void *label, *popup_title, *char_filter; int kind; int padding_1c; char list_ops[0x38];
-    void (*get_candidates)(void **items, void **count); unsigned char changed;
-};
+struct ListSetting { void *label, *popup_title, *char_filter; int kind; int padding_1c; char list_ops[0x38]; void (*get_candidates)(void **items, void **count); unsigned char changed; };
 extern "C" void widget_items(void *window, void *gui, ListSetting *setting) {
     void *candidates = 0, *candidate_count = 0;
     if (setting->get_candidates) setting->get_candidates(&candidates, &candidate_count);
@@ -206,8 +203,16 @@ extern "C" int unregister_channel_class(Jvm *jvm, HClass *h) {
 }
 
 // ---- reach: entity mouse-over with the module's reach / hitbox expansion (piercing, ghost hand aware) ----
-struct V3d { double x, y, z; };
-struct Box6 { double v[6]; };
+struct V3d { double x, y, z;
+#ifdef __linux__
+    ~V3d() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Box6 { double v[6];
+#ifdef __linux__
+    ~Box6() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct ReachA { Ctx *c; void *padding_08; double reach, expand; };
 FN(bool, piercing_should_pierce_blocks_entry, (Ctx *ctx));                                      // piercing: blocks
 FN(bool, ghost_hand_should_ignore_entity_entry, (Ctx *ctx, jobject entity));                           // ghost hand: may hit through e
@@ -216,7 +221,7 @@ FN(jobject, java_call_entity_ray_trace, (Jvm *jvm, jobject object, double d, flo
 FN(jobject, java_call_entity_living_base_get_position, (Jvm *jvm, jobject entity_living_base));                        // eye position
 FN(V3d, java_get_vec3_x_coord, (Jvm *jvm, jobject vec3));
 FN(jobject, java_get_moving_object_position_hit_vec, (Jvm *jvm, jobject mop));                      // hitVec
-FN(double, vec3_distance, (V3d a, V3d b));
+FN(double, vec3_distance, (V3d *a, V3d *b));   // spelled as vec_aabb.cpp defines it: MS hands big structs by address, SysV passes them in XMM
 FN(V3d, java_get_entity_rotation_pitch, (Jvm *jvm, jobject entity));                            // look vector
 FN(V3d, vec3_scale, (V3d a, double s));
 FN(V3d, vec3_add, (V3d a, V3d b));
@@ -231,7 +236,7 @@ FN(Box6, java_get_axis_aligned_bb_min_x, (Jvm *jvm, jobject bb));
 FN(Box6, aabb_expand, (Box6 b, double d));                             // expand
 FN(jobject, java_new_axis_aligned_bb_init, (Jvm *jvm, Box6 b));
 FN(jobject, java_axis_aligned_bb_calculate_intercept, (Jvm *jvm, jobject bb, jobject from, jobject to));   // calculateIntercept
-FN(bool, aabb_contains_point, (Box6 b, V3d p));                                // isVecInside
+FN(bool, aabb_contains_point, (Box6 *b, V3d *p));                                // isVecInside
 FN(V3d, aabb_clamp_point, (Box6 b, V3d p));                                 // clamp into box
 FN(jobject, java_moving_object_position_init, (Jvm *jvm, jobject moving_object_position, jobject v));             // new MovingObjectPosition
 FN(void, java_set_minecraft, (Jvm *jvm, void *minecraft, jobject mop));               // objectMouseOver =
@@ -246,7 +251,10 @@ extern "C" void reach_distance_check(ReachA *a) {
     jobject mop = java_call_entity_ray_trace(RJ, ctx->player, d, one_in_imgui_widgets);
     jobject eyes = java_call_entity_living_base_get_position(RJ, ctx->player);
     V3d eye = java_get_vec3_x_coord(RJ, eyes);
-    if (!pierce && mop) d = vec3_distance(eye, java_get_vec3_x_coord(RJ, java_get_moving_object_position_hit_vec(RJ, mop)));
+    if (!pierce && mop) {
+        V3d hit = java_get_vec3_x_coord(RJ, java_get_moving_object_position_hit_vec(RJ, mop));
+        d = vec3_distance(&eye, &hit);
+    }
     V3d endv = vec3_add(eye, vec3_scale(java_get_entity_rotation_pitch(RJ, ctx->player), d));
     jobject endo = java_new_vec3_init(RJ, endv);
     jobject list = java_get_world_loaded_entity_list(RJ, ctx->world);
@@ -268,7 +276,7 @@ extern "C" void reach_distance_check(ReachA *a) {
         jobject ic = java_axis_aligned_bb_calculate_intercept(RJ, java_new_axis_aligned_bb_init(RJ, bb), eyes, endo);
         jobject entity;
         double nd;
-        if (aabb_contains_point(bb, eye)) {   // eye inside the (expanded) box
+        if (aabb_contains_point(&bb, &eye)) {   // eye inside the (expanded) box
             found = true;
             entity = pointed;
             nd = closest;
@@ -280,7 +288,8 @@ extern "C" void reach_distance_check(ReachA *a) {
         } else {
             if (!ic) continue;
             jobject moving_object_position = java_get_moving_object_position_hit_vec(RJ, ic);
-            double dist = vec3_distance(eye, java_get_vec3_x_coord(RJ, moving_object_position));
+            V3d hv = java_get_vec3_x_coord(RJ, moving_object_position);
+            double dist = vec3_distance(&eye, &hv);
             int result = piercing_decide_which_entity_entry(ctx, pointed, element, found);
             bool take = result == 2 ? closest == 0.0 || closest > dist : result == 0 && reach > dist;
             entity = pointed;

@@ -5,7 +5,11 @@
 extern "C" JIds *java_natives_world_cached_jni_ids;
 extern "C" unsigned char java_natives_frame_client_shutting_down_natives_check;   // set by the unload sequence: every entry below is inert once it is 1
 extern "C" void slinky_logf(const char *fmt, ...);
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(unsigned char, is_silent_rotation_active, ());
 FN(Rot, get_silent_rotation, ());
 FN(void *, should_render_player_name, (Jvm *jvm, void *render_player, void *other_object));
@@ -75,7 +79,11 @@ extern "C" void hook_unload_chunk(JNIEnv *env, jclass, void *receiver, int a, in
 // ---- world-change hooks: report the change to the modules (event 0x14), then call the game method ----
 FN(int, get_block_id, (Jvm *jvm, void *blockOrState));
 FN(void *, set_block_state, (Jvm *jvm, void *block, int a, int b, int c, void *blk, int d, int e));
-struct Pos3 { int x, y, z; };
+struct Pos3 { int x, y, z;
+#ifdef __linux__
+    ~Pos3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(Pos3, get_block_position, (Jvm *jvm, void *pos));
 FN(void *, get_block_from_pos, (Jvm *jvm, void *blk));
 FN(void *, set_block_at_pos, (Jvm *jvm, void *block, void *pos, void *blk, int f));
@@ -127,8 +135,7 @@ extern "C" unsigned char hook_should_clip_ledge(JNIEnv *env, jclass, void *recei
 extern "C" char java_natives_frame_module_manager_target_state[];
 extern "C" void *init_profile_list, *java_natives_world_key_state_table_one_byte;
 extern "C" char *ptr_to_gui_module_descriptor;
-struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target;
-              unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
+struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target; unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
 struct HEvent { int type; int padding_04; HCtx *ctx; char rest[0x38]; };
 struct RotEvent { int type; int padding_04; unsigned char a, b, d, e; Rot rot; char rest[0x34]; };   // event 0xd
 FN(unsigned char, is_in_game, (Jvm *jvm, void *minecraft));
@@ -258,7 +265,11 @@ extern "C" void hook_update_controller(JNIEnv *env, jclass, void *receiver) {
 }
 
 // ---- glClear(GL_DEPTH_BUFFER_BIT) hook: fire the 3D (6) and 2D (7) render events with GL state set up ----
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void *, get_render_view_entity, (Jvm *jvm, void *minecraft));
 FN(void *, get_timer, (Jvm *jvm, void *minecraft));
 FN(float, get_partial_ticks, (Jvm *jvm, void *timer));

@@ -1,6 +1,10 @@
 // 0x36000: distance comparisons (vec3_distance takes its two Vec3 by value = pointers to caller copies)
 #include "slinky/engine.h"
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(double, vec3_distance, (Vec3 *a, Vec3 *b));
 FN(Vec3, java_get_entity_pos_x, (void *jvm, void *entity));
 FN(Vec3, java_get_entity_other_player_mp_other_player_mpx, (void *jvm, void *entity_other_player_mp));

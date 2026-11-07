@@ -8,8 +8,16 @@
 
 typedef float v4f __attribute__((vector_size(16), aligned(16)));
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct PktHook { char padding_00[8]; void *ctx; void *ev; long long budget; int id; int verdict; };  // +0x18/+0x20/+0x24
 
 extern "C" float knockback_delay_max_delay;            // "max_delay"
@@ -52,8 +60,8 @@ FN(void *, java_call_list_get, (void *jvm, void *list, int i));
 FN(double, vec3_distance_sq, (Vec3 a, Vec3 b));
 FN(Rot, rot_look_at, (Vec3 from, Vec3 to));
 FN(float, wrap_angle, (float a));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(unsigned char, walk_should_change, (void *state, void *rng, double p));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(unsigned char, walk_should_change, (void *state, Rot rng, double p));
 
 #define ALOAD(x) __atomic_load_n(&(x), __ATOMIC_SEQ_CST)
 #define AXCHG(x, v) __atomic_exchange_n(&(x), (v), __ATOMIC_SEQ_CST)

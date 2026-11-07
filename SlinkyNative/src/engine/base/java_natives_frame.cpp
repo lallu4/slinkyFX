@@ -29,7 +29,11 @@ extern "C" unsigned char hook_is_display_active_prerender(JNIEnv *env, jclass) {
     return world_is_loaded(&jvm);
 }
 
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(unsigned char, is_silent_rotation_active, ());
 FN(Rot, get_silent_rotation, ());
 FN(void *, get_minecraft, (Jvm *jvm));
@@ -84,8 +88,7 @@ extern "C" void hook_update_active_render_info(JNIEnv *env, jclass, void *receiv
 extern "C" char java_natives_world_module_manager[], java_natives_frame_module_manager_target_state[];
 extern "C" void *init_profile_list, *java_natives_world_key_state_table_one_byte;
 extern "C" char *ptr_to_gui_module_descriptor;
-struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target;
-              unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
+struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target; unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
 struct HEvent { int type; int padding_04; HCtx *ctx; unsigned char flag, cancel; char rest[0x36]; };
 FN(void *, get_world, (Jvm *jvm, void *minecraft));
 FN(unsigned char, is_in_game, (Jvm *jvm, void *minecraft));

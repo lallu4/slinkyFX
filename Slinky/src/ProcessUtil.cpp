@@ -110,6 +110,17 @@ bool ProcessUtil::IsModuleMappedAt(DWORD pid, const std::wstring& fullPath) {
     return found;
 }
 
+bool ProcessUtil::IsThirtyTwoBit(DWORD pid) {
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProcess) return false;
+
+    BOOL underWow64 = FALSE;
+    BOOL ok = IsWow64Process(hProcess, &underWow64);
+
+    CloseHandle(hProcess);
+    return ok && underWow64 == TRUE;
+}
+
 namespace {
 
 // The engine names a kernel object after the game's pid as the first thing its engine thread does and lets

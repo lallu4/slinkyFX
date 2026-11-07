@@ -116,17 +116,27 @@ fi
 [[ $CLEAN -eq 1 && -d $OUT ]] && rm -rf "$OUT"
 mkdir -p "$OUT"
 
-BASE="$TARGET -fPIC -fshort-wchar -fdeclspec -O2
--fno-exceptions -fno-rtti -I$ENGINE/include -I$ENGINE/src
+# -ffile-prefix-map because stb_image.h and stb_truetype.h put __FILE__ in their assert strings, and the engine
+# has the third_party files inside NanoVG's own directory: without the map, two of those Windows paths sit in
+# the shipped .so, and a player's log could print one. The flag is applied to every source, so nothing that
+# comes after it has to be thought about again.
+# -fno-builtin-wcslen because wchar_t is 2 bytes here (-fshort-wchar) while glibc's wcslen counts 4-byte units:
+# clang recognises the "walk until a zero element" shape and turns our own wide-length loop into a jump to
+# libc's, which then reads UTF-16 as UTF-32. The gate at the end of this script refuses the import outright.
+BASE="$TARGET -fPIC -fshort-wchar -fdeclspec -fno-builtin-wcslen -O2
+-fno-exceptions -fno-rtti -ffile-prefix-map=$ROOT/= -I$ENGINE/include -I$ENGINE/src
 -I$ENGINE/third_party/nanovg/src -I$ENGINE/third_party/gl -DAPIENTRY="
 # The same opt-in warning set as the Windows engine target: this code reads Java objects as (char *)base +
 # offset, so the style families fire thousands of times and bury the mistakes that actually break the game.
+# -Wreturn-type-c-linkage is off because the by-value structs here carry a Linux-only trivial destructor (see
+# audit/AbiSysv.py) that makes them non-POD on purpose; nothing calls them from C.
 WARN="-Wno-everything -Wunused -Wuninitialized -Winit-self -Wreturn-type -Wswitch -Wswitch-bool -Wformat
 -Wformat-security -Warray-bounds -Wstringop-overflow -Wstringop-truncation -Wsizeof-array-argument
 -Wsizeof-pointer-memaccess -Wnonnull -Wnonnull-compare -Wtautological-compare
 -Wtautological-constant-out-of-range-compare -Wpointer-bool-conversion -Wbool-conversion
 -Wconditional-uninitialized -Wimplicit-fallthrough -Wunused-result -Wdelete-non-virtual-dtor
--Wmismatched-tags -Woverloaded-virtual -Wshadow"
+-Wmismatched-tags -Woverloaded-virtual -Wshadow
+-Wno-return-type-c-linkage"
 
 # ---- sources: the engine's own, plus the Linux platform layer ----
 # src/engine/protected/input.cpp is the Win32 window-subclassing input path; src/platform/linux/input.cpp is
@@ -141,14 +151,28 @@ N_SRC=$(grep -c . "$OUT/sources.list")
 compile() {
     src="$1"
     obj="$OUT/$(echo "${src##*SlinkyNative/}" | tr '/.' '__').o"
-    # incremental: a rebuilt source is older than nothing here, so compare timestamps and move on
-    if [[ -f "$obj" && "$obj" -nt "$src" ]]; then return 0; fi
+    # incremental: a rebuilt source is older than nothing here, so compare timestamps and move on. The two
+    # stamps are what make that safe: a timestamp says nothing about the flags a file was built with, and
+    # nothing about the headers it includes - and most of what this image gets wrong first appears in a header.
+    # Without the stamps a changed BASE or an edited include would keep every object from the previous build,
+    # and the gates below would measure a file that is not the current source.
+    if [[ -f "$obj" && "$obj" -nt "$src" && "$obj" -nt "$OUT/flags.stamp" && "$obj" -nt "$OUT/headers.stamp" ]]; then
+        return 0
+    fi
     case "$src" in
         *.cpp) "$CC" $BASE -std=gnu++17 -c $WARN -D_GNU_SOURCE=1 "$src" -o "$obj" 2>&1 | sed "s|^|[$src] |" ;;
         *)     "$CC_C" $BASE -std=gnu11 -c -Wno-everything "$src" -o "$obj" 2>&1 | sed "s|^|[$src] |" ;;
     esac
     test -f "$obj"
 }
+printf '%s\n%s\n' "$BASE" "$WARN" > "$OUT/flags.stamp"
+# Moving the stamp is the whole refresh: every object that predates it is rebuilt, which is what "some header
+# changed somewhere" means when nothing in the build tracks which source includes which header.
+if [[ ! -f "$OUT/headers.stamp" ]] ||
+   [[ -n $(find "$ENGINE/include" "$ENGINE/src" "$ENGINE/third_party" \
+        \( -name '*.h' -o -name '*.hpp' \) -newer "$OUT/headers.stamp" -print -quit 2>/dev/null) ]]; then
+    touch "$OUT/headers.stamp"
+fi
 export -f compile
 export OUT BASE WARN CC="$CLANGXX" CC_C="$CLANG"
 
@@ -248,6 +272,18 @@ if [[ "$WANT" != "$GOT" ]]; then
     comm -13 <(printf '%s\n' "$WANT") <(printf '%s\n' "$GOT") | sed 's/^/[X] exported unasked: /' >&2
     exit 1
 fi
+
+# wchar_t is 2 bytes in this image, so every wide string it holds is UTF-16 while the C library reads 4-byte
+# units. Any libc wide entry point here would therefore count the length of a path or a class name at roughly
+# half the characters, and read on past its end. Nothing may import one - and the compiler has to be held to
+# that, because its loop-idiom pass turns our own 2-byte length loop into a jump to wcslen unless BASE says
+# otherwise.
+WIDE=$(awk '$7=="UND" && $8 ~ /^(wcs|wmem|btowc|wctob|wcstombs|mbsrtowcs|wcsrtombs|v?wc(s?len|scpy|cmp|ncmp))/ {print $8}' <<<"$DYNSYM")
+if [[ -n "$WIDE" ]]; then
+    echo "[X] the engine asks the C library for a wide-character function, and this build's wchar_t is 2 bytes:" >&2
+    printf '%s\n' "$WIDE" | sed 's/^/      /' >&2
+    exit 1
+fi
 if grep -q TEXTREL <<<"$DYNAMIC"; then
     echo "[X] the image asks for a writable text segment (TEXTREL): the blobs' absolute pointers" >&2
     echo "    have to live in .data.rel.ro, see src/data/rdata.s" >&2; exit 1
@@ -272,6 +308,12 @@ fi
     echo "[X] a 16-byte constant is read misaligned - pad the insertion in src/data/rdata.s to 16 bytes" >&2
     exit 1
 }
+
+if [[ $NATIVE -eq 0 ]]; then
+    # Only the cross build can carry a path from the machine that is not the machine it ships to; a native build
+    # has the player's own paths, which are nobody's problem but theirs.
+    "$ROOT/tools/check-shipped-paths.sh" "$OUT/libslinky-engine.so"
+fi
 
 if [[ $DIST -eq 1 ]]; then
     mkdir -p "$ROOT/dist"

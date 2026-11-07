@@ -1,7 +1,10 @@
 // 0x32000: key-name table helpers and a "speed" module's callbacks
 #include "slinky/engine.h"
-struct Vec3 { double x, y, z; };
-
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" int key_colour_count;
 extern "C" char key_colour_vector_header[], gui_state_block[];
 extern "C" void *teams_colour_table;
@@ -51,7 +54,11 @@ extern "C" void remove_key_name(void *, void *key) { vector_erase(teams_colour_t
 extern "C" void clear_key_name() { key_colour_count = 0; }
 extern "C" void key_name_table(const char ***a, long long *n) { *a = teams_team_colors_setting_field_0x70; *n = 0x10; }
 extern "C" unsigned char is_unload_requested_flag() { return is_unload_requested(gui_state_block); }
-struct Pair { long long a; int b; };
+struct Pair { long long a; int b;
+#ifdef __linux__
+    ~Pair() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" Pair get_speed_pair() { Pair r; r.b = gui_accent_color_setting_field_0x10; r.a = gui_accent_color_setting_field_0x8; return r; }
 extern "C" bool enable_hud_editor(Ctx **h) { queue_module_toggle(h[1], gui_module_descriptor, 1); return true; }
 

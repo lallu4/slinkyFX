@@ -3,7 +3,11 @@
 //   mode 1 ("timer"):  slow the game timer while falling onto a target so the hit crits
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct PktHook { char padding_00[8]; void *ctx; void *ev; long long budget; int seq; int verdict; };
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 struct TimerHook { char padding_00[8]; Ctx *ctx; char padding_10[8]; double dt; };          // +0x18

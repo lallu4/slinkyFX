@@ -9,7 +9,6 @@ extern "C" int auto_weapon_ticks_since_target_acquired;              // ticks si
 extern "C" char auto_weapon_module_descriptor[];           // switch cooldown timer
 
 struct WState { char padding_00[8]; Ctx *ctx; };
-
 FN(unsigned char, java_call_entity_player_is_using_item, (void *jvm, void *entity_player));
 FN(unsigned char, vertex_pointer_current, (Ctx *ctx));
 FN(void *, java_get_minecraft_object_mouse_over, (void *jvm, void *minecraft));

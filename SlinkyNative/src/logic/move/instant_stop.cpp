@@ -4,10 +4,17 @@
 //   state 0 = idle, 1 = forward held, 2 = counter-keys pressed this tick.
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char instant_stop_module_descriptor[];
 extern "C" int instant_stop_state;               // state
 extern "C" const double divisor_1_3;     // sprint speed divisor

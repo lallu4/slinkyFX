@@ -3,14 +3,25 @@
 #include "slinky/engine.h"
 #include "slinky/jids.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 typedef float v4f __attribute__((vector_size(16), aligned(16)));
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
-struct Rot { float yaw, pitch; };
-struct Range { float lo, hi; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct PhaseHook { char padding_00[8]; Ctx *ctx; unsigned char phase; };
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char velocity_module_descriptor[];           // Velocity module descriptor
 extern "C" unsigned char velocity_tick_motion_saved;    // tick motion saved
 extern "C" Vec3 velocity_motion_at_last_tick;             // motion at the last tick
@@ -30,7 +41,6 @@ extern "C" unsigned char velocity_reduced_this_combo;    // reduced this combo
 extern "C" const double velocity_reduce_factor;    // reduce factor
 extern "C" double factor_0_01_in_velocity, offset_neg_0_05, offset_0_05_in_velocity, velocity_ignore_walk_period, threshold_0_05_in_velocity_a;
 struct PktHook { char padding_00[8]; void *ctx; void *ev; char padding_18[12]; int verdict; };
-
 FN(unsigned char, velocity_shared_conditions_entry, (Ctx *ctx));
 extern "C" unsigned char velocity_require_mouse_value, velocity_require_target_value, velocity_require_sprinting_jump_value;
 extern "C" float velocity_reduce_chance_value, velocity_reduce_delay_value, velocity_reduce_amount, velocity_fov_value, velocity_jump_chance_value;

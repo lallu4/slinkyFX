@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -31,7 +32,10 @@ static int TitleScore(const std::string& title) {
 
 // Picks the candidate that really belongs to a Minecraft JVM: LWJGL must be
 // loaded in the process (the Linux twin of the module check on Windows).
-// After allowFallback we fall back to the best title match anyway.
+// After allowFallback is set - a client that does not have lwjgl in its maps the way we look for it - the
+// fallback still has to see something about Minecraft in the window name. A Gradle daemon, an IDE, the
+// launcher's own JVM and every other Java process score zero: putting the engine into one of those does
+// nothing for the player and leaves a loaded library in a program they never meant to touch.
 static bool PickTarget(const std::vector<TargetWindow>& windows, bool allowFallback,
                        TargetWindow& out) {
     int best = -1;
@@ -43,17 +47,47 @@ static bool PickTarget(const std::vector<TargetWindow>& windows, bool allowFallb
     if (best >= 0) return true;
     if (!allowFallback || windows.empty()) return false;
 
-    best = -1;
+    best = 0;
     for (const TargetWindow& w : windows) {
         int score = TitleScore(w.title);
         if (score > best) { best = score; out = w; }
     }
-    return best >= 0;
+    return best > 0;
 }
 
-int main() {
+// --pid <number> - point the loader at a game it is not finding on its own.
+// Detection on this platform reads /proc, and a Wayland client that gives the compositor no window title, an
+// instance started before the loader, or a launcher that renames its own process can all leave a perfectly good
+// game invisible to the scan. The player can always see the number themselves (ps, top, the launcher's own
+// log line), so this makes the one failure we cannot diagnose from here fixable without a rebuild.
+static bool ParsePidArg(int argc, char** argv, pid_t& outPid) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--pid") && strcmp(argv[i], "-p")) continue;
+        if (i + 1 >= argc) {
+            ConsoleUI::PrintFailure("Usage: slinky-loader --pid <process id of the game>");
+            return false;
+        }
+        char* end = nullptr;
+        long v = strtol(argv[++i], &end, 10);
+        if (v <= 0 || (end && *end)) {
+            ConsoleUI::PrintFailure("That is not a process id.");
+            return false;
+        }
+        outPid = (pid_t)v;
+        return true;
+    }
+    return true;   // no --pid given: normal scanning
+}
+
+int main(int argc, char** argv) {
     ConsoleUI::Initialize();
     ConsoleUI::StartAnimation();
+
+    pid_t forcedPid = -1;
+    if (!ParsePidArg(argc, argv, forcedPid)) {
+        ConsoleUI::Shutdown();
+        return 1;
+    }
 
     std::string soPath;
     std::string logPath;
@@ -69,7 +103,25 @@ int main() {
     TargetWindow target;
     bool found = false;
 
-    while (GetTickCount64() - startWait < timeoutWait) {
+    if (forcedPid > 0) {
+        // Checked rather than trusted: injecting into the wrong process leaves a library inside a program the
+        // player never meant to touch. The same JVM test the scan uses, so --pid cannot point at a shell.
+        bool java = false;
+        for (pid_t p : ProcessUtil::GetJavaProcessIds()) if (p == forcedPid) { java = true; break; }
+        if (!java) {
+            std::string msg = "Process " + std::to_string((long)forcedPid) +
+                              " is not a running Java game. Start Minecraft, then run: "
+                              "slinky-loader --pid <that process id>";
+            ConsoleUI::PrintFailure(msg.c_str());
+            ConsoleUI::Shutdown();
+            return 1;
+        }
+        target.pid = forcedPid;
+        target.title = "";
+        found = true;
+    }
+
+    while (!found && GetTickCount64() - startWait < timeoutWait) {
         std::vector<TargetWindow> windows = ProcessUtil::FindMinecraftWindows();
         if (PickTarget(windows, GetTickCount64() - startWait > 20000, target)) {
             found = true;

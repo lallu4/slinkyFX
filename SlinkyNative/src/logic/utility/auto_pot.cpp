@@ -5,10 +5,14 @@
 //   +0x88 (input): arm an extra throw for "double_splash"
 //   0x396e0:       randomised delay between steps
 #include "slinky/engine.h"
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 struct InHook { char padding_00[8]; void *mod; unsigned char use; };
-
 extern "C" char auto_pot_module_descriptor[];           // Auto Pot module descriptor (timer at +0)
 extern "C" unsigned char auto_pot_use_non_health_value;    // "use_non_health"
 extern "C" float auto_pot_delay_value;            // "delay"
@@ -50,10 +54,10 @@ FN(void, java_increment_key_binding_press_time, (void *jvm, void *key_binding));
 FN(void, queue_module_toggle, (void *module_manager, void *module, int enabled));
 FN(float, java_call_entity_living_base_get_health, (void *jvm, void *entity_living_base));
 FN(float, java_call_entity_living_base_get_max_health, (void *jvm, void *entity_living_base));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(float, walk_update, (void *state, void *rng, double p));
-FN(unsigned char, walk_should_change, (void *state, void *rng, double p));
-FN(float, random_rotation, (void *rng));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(float, walk_update, (void *state, Rot rng, double p));
+FN(unsigned char, walk_should_change, (void *state, Rot rng, double p));
+FN(float, random_rotation, (Rot rng));
 extern "C" float auto_pot_asm_r_pins();
 
 extern "C" void auto_pot_on_tick(Hook *hook) {
@@ -229,7 +233,7 @@ extern "C" float auto_pot_asm_r_pins() {
     asm("" : "+x"(r));
 
     float lo = 0.0f, hi = range_high_0_5_in_auto_pot;
-    void *rng = rot_make_floats(lo, hi);
+    Rot rng = rot_make_floats(lo, hi);
     char *st = auto_pot_rng_states;
     asm("" : "+r"(st));
 

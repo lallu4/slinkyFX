@@ -2,7 +2,11 @@
 // +0xa8 (render a box per container with the per-type colour).
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Found { Vec3 pos; int id; int padding_1c; };          // 0x20 bytes
 
 extern "C" float chest_esp_range_value;            // "range"

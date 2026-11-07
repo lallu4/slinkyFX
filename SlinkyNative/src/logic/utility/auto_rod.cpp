@@ -1,13 +1,25 @@
 // Auto Rod - cast and reel the fishing rod automatically.
 #include "slinky/engine.h"
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 
-struct Vec3 { double x, y, z; };
-struct AABB { Vec3 lo, hi; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct AABB { Vec3 lo, hi;
+#ifdef __linux__
+    ~AABB() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Target { void *padding_00; void *ent; double dist2; };
 struct InHook { char padding_00[8]; void *mod; unsigned char use; };
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 struct AttackHook { char padding_00[8]; Ctx *ctx; unsigned char phase; unsigned char cancel; };
-
 extern "C" char auto_rod_module_descriptor[];           // Auto Rod module descriptor
 extern "C" unsigned char timer_range_min_dist_setting_field_0x58;
 extern "C" unsigned char auto_rod_input_taken;    // input taken
@@ -60,10 +72,10 @@ FN(AABB, aabb_make, (Vec3 lo, Vec3 hi));
 FN(Vec3, aabb_clamp_point, (AABB box, Vec3 p));
 FN(double, vec3_distance, (Vec3 a, Vec3 b));
 FN(float, libc_ceilf, (float v));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(float, walk_update, (void *state, void *rng, double p));
-FN(unsigned char, walk_should_change, (void *state, void *rng, double p));
-FN(float, random_rotation, (void *rng));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(float, walk_update, (void *state, Rot rng, double p));
+FN(unsigned char, walk_should_change, (void *state, Rot rng, double p));
+FN(float, random_rotation, (Rot rng));
 FN(void *, item_held_hotbar_slot, (void *jvm, void *slot));
 FN(int, java_call_static_item_get_id_from_item, (void *jvm, void *item));
 
@@ -121,7 +133,7 @@ extern "C" void auto_rod_on_attack(AttackHook *hook) {
 extern "C" float auto_rod_randomised_throw_delay() {
     float d = auto_rod_throw_delay;
     if (auto_rod_randomise == 1) {
-        void *rng = rot_make_floats(0.0f, random_range_bound_0_5_in_auto_rod);
+        Rot rng = rot_make_floats(0.0f, random_range_bound_0_5_in_auto_rod);
         char *st = auto_rod_rng_states;
         asm("" : "+r"(st));
 
@@ -153,7 +165,7 @@ extern "C" float auto_rod_randomised_rod_pull() {
         float lo = range_low_0_5_in_auto_rod_a;
         asm("" : "+x"(lo));
 
-        void *rng = rot_make_floats(lo, random_range_bound_1_in_auto_rod_a);
+        Rot rng = rot_make_floats(lo, random_range_bound_1_in_auto_rod_a);
         char *st = auto_rod_rng_states_third;
         asm("" : "+r"(st));
 

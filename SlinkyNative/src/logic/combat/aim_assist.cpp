@@ -8,14 +8,28 @@
 #include "slinky/jids.h"
 
 typedef float v4f __attribute__((vector_size(16), aligned(16)));
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
-struct Box { Vec3 lo, hi; };
-struct Range { float lo, hi; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Box { Vec3 lo, hi;
+#ifdef __linux__
+    ~Box() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct FrameEvt { char padding_00[8]; Ctx *ctx; float partial; int padding_14; double dt; };
-
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char aim_assist_module_descriptor[];           // Aim Assist module descriptor
 extern "C" unsigned char aim_assist_silent_move_correct_value;
 extern "C" unsigned char aim_assist_has_target;

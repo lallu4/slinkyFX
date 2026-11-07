@@ -3,6 +3,11 @@
 // sprint (or forward/back) key for "duration" and restores it.
 //   state 0 = idle, 1 = waiting for the delay, 2 = key released.
 #include "slinky/engine.h"
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 
 extern "C" unsigned sprint_reset_mode;         // "mode"
 extern "C" float sprint_reset_delay_value;            // "delay"
@@ -39,10 +44,10 @@ FN(void *, java_get_game_settings_key_17_or_8, (void *jvm, void *game_settings))
 FN(unsigned char, java_get_key_binding_key_code, (void *jvm, void *key_binding));
 FN(void, java_set_key_binding_pressed, (void *jvm, void *key_binding, unsigned char on));
 FN(void, java_call_entity_set_sprinting, (void *jvm, void *entity, bool on));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(float, walk_update, (void *state, void *rng, double p));
-FN(unsigned char, walk_should_change, (void *state, void *rng, double p));
-FN(float, random_rotation, (void *rng));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(float, walk_update, (void *state, Rot rng, double p));
+FN(unsigned char, walk_should_change, (void *state, Rot rng, double p));
+FN(float, random_rotation, (Rot rng));
 extern "C" void sprint_reset_press_key(Ctx *ctx, unsigned char on);
 
 // time the last reset actually started; spaces the taps (see the detection note below)

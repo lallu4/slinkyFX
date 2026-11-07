@@ -15,7 +15,11 @@ extern "C" void refill_disable_and_close_screen(Ctx *ctx) {
 // pick the target cell (of the 9x3 grid) closest to `cell`, scored by distance and yaw difference.
 // type-2 cells always count, type-0 cells only when a random check passes; the best type-0 cell or the
 // runner-up type-2 cell can win instead after a random walk check. *out = score, refill_cell_angle = angle.
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Walk { double t0; float a, b; };
 FN(Rot, rot_make, (float a, float b));
 FN(float, rot_delta_length, (Rot a, Rot b));

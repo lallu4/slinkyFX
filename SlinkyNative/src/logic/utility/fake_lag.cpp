@@ -30,7 +30,6 @@ extern "C" volatile unsigned short fake_lag_outbound_budget;   // outbound budge
 
 struct PktHook { int type; char padding_04[4]; Ctx *ctx; void *ev; long long budget; char padding_20[4]; int verdict; };  // +0x00/+0x08/+0x10/+0x18/+0x24
 struct ToggleHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 FN(int, java_get_entity_living_base_last_attacker_time, (void *jvm, void *entity_living_base));
 FN(unsigned char, is_holding_accepted_weapon, (void *jvm, void *object));
 FN(void *, java_jni_is_instance_of_s19_packet_entity_status, (void *jvm, void *event));

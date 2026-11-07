@@ -180,6 +180,9 @@ void ConsoleUI::SetStatusText(const char* text) {
     int cols = 76;
     struct winsize ws;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 12) cols = ws.ws_col - 8;
+    // The three dots and the terminator are written at cols-1..cols+2, so the row can never be wider than the
+    // buffer they land in - a terminal of 518 columns or more used to write past it.
+    if (cols > (int)sizeof(clean) - 3) cols = (int)sizeof(clean) - 3;
     if (n > (size_t)cols) {
         clean[cols - 1] = '.';
         clean[cols] = '.';

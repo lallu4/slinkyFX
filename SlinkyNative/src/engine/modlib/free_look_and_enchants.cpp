@@ -1,15 +1,20 @@
 // helper functions (formerly address block; names inferred from behaviour).
 #include "slinky/engine.h"
-extern "C" char free_look_module_descriptor[]; extern "C" unsigned char free_look_active; extern "C" void *free_look_saved_camera;
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+extern "C" char free_look_module_descriptor[]; extern "C" unsigned char free_look_active; extern "C" Rot free_look_saved_camera;
 extern "C" int free_look_saved_perspective, free_look_target_perspective_value;
 struct Ev { char padding_00[8]; Ctx *ctx; void *tag; unsigned char on; };
 FN(unsigned char, is_silent_rotation_active, ());
-FN(void *, get_silent_rotation, ());
-FN(void *, get_entity_rotation, (void *jvm, void *entity));
+FN(Rot, get_silent_rotation, ());
+FN(Rot, get_entity_rotation, (void *jvm, void *entity));
 FN(void *, get_game_settings, (void *jvm, void *object));
 FN(int, java_get_game_settings_third_person_view, (void *jvm, void *game_settings));
 FN(void, java_set_game_settings_third_person_view, (void *jvm, void *game_settings, int value));
-FN(void, set_render_rotation, (void *cam));
+FN(void, set_render_rotation, (Rot cam));
 FN(void *, java_call_item_stack_get_enchantment_tag_list, (void *jvm, void *stack));
 FN(int, java_call_nbttag_list_tag_count, (void *jvm, void *list));
 FN(void *, java_call_nbttag_list_get_compound_tag_at, (void *jvm, void *list, int i));
@@ -25,7 +30,7 @@ extern "C" void free_look_on_toggle(Ev *event) {
         return;
     if (event->on == 1) {
         free_look_active = 1;
-        void *cam;
+        Rot cam;
         if (is_silent_rotation_active())
             cam = get_silent_rotation();
         else
@@ -47,7 +52,7 @@ extern "C" void free_look_on_toggle(Ev *event) {
         free_look_active = 0;
     }
 }
-extern "C" void free_look_save_rotation(char *p) { p[8] = 1; *(void **)(p + 0xc) = free_look_saved_camera; }
+extern "C" void free_look_save_rotation(char *p) { p[8] = 1; __builtin_memcpy(p + 0xc, &free_look_saved_camera, 8); }
 
 // enchantment flags of an item stack: 1 = id 16, 2 = id 19, 4 = id 20
 extern "C" unsigned get_weapon_enchant_flags(Jvm2 *j, void *stack) {

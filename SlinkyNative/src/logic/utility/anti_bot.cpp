@@ -5,8 +5,16 @@
 #include "slinky/engine.h"
 #include "slinky/jids.h"
 
-struct Vec3 { double x, y, z; };
-struct Key { unsigned long long hi, lo, padding_10, padding_18; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Key { unsigned long long hi, lo, padding_10, padding_18;
+#ifdef __linux__
+    ~Key() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Info {
     unsigned long long hi, lo;
     double moved;            // +0x10 accumulated horizontal movement^2

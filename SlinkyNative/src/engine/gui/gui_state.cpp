@@ -38,14 +38,23 @@ extern "C" __attribute__((noinline)) void *take_dragged_item(GuiState *gui) {
     return edit_text;
 }
 
-struct R16b { long long a, b; };
+struct R16b { long long a, b;
+#ifdef __linux__
+    ~R16b() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float x, y;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(bool, popup_is_open, (GuiState *gui));
 FN(unsigned char, popup_is_animating, (GuiState *gui));
-FN(bool, point_in_rect, (R16b r, unsigned long long mouse));
+FN(bool, point_in_rect, (const R16b *r, Rot mouse));   // math_helpers.cpp passes the point as a struct, so must we
 // is the mouse over rect r (and no drag in progress)?
 extern "C" __attribute__((noinline)) bool mouse_over_rect_r(GuiState *gui, const R16b *r) {
     if (popup_is_open(gui) && !popup_is_animating(gui)) return false;
-    if (!point_in_rect(*r, *(unsigned long long *)&gui->mouse_scene)) return false;
+    if (!point_in_rect(r, Rot{gui->mouse_scene.x, gui->mouse_scene.y})) return false;
     int st = gui->input_mode;
     return (st == 0) | (st == 3);
 }
@@ -54,7 +63,7 @@ extern "C" bool clicked_inside_r_frame(GuiState *gui, R16b r) {
     R16b c = r;
 
     if (popup_is_open(gui) && !popup_is_animating(gui)) return false;
-    if (!point_in_rect(c, *(unsigned long long *)&gui->mouse_scene)) return false;
+    if (!point_in_rect(&c, Rot{gui->mouse_scene.x, gui->mouse_scene.y})) return false;
     int st = gui->input_mode;
     if (st != 3 && st != 0) return false;
     if (gui->click_capture != 1 || gui->click_consumed != 0) return false;
@@ -71,8 +80,16 @@ extern "C" void start_dragging_item_b(GuiState *gui, void *item, void *other_obj
 }
 
 // ---- category tab bar: 7 tabs with a sliding highlight; tab kind 6 = "Unload Slinky?" ----
-struct R16t { float x, y, w, h; };
-struct V4t { float x, y, z, w; };
+struct R16t { float x, y, w, h;
+#ifdef __linux__
+    ~R16t() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct V4t { float x, y, z, w;
+#ifdef __linux__
+    ~V4t() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct WT3 { void *ig; double t; };
 FN(R16t, add_cell, (GuiState *gui, float h));
 FN(V4t, nvg_rgba_f, (float r, float g, float b, float a));
@@ -83,7 +100,7 @@ FN(R16t, make_rect, (float x, float y, float w, float h));
 FN(R16t, inset_rect, (R16t r, float d));
 FN(void, nvg_FontSize, (void *nvg, float size));
 FN(unsigned char, clicked_inside_r_frame_local, (GuiState *gui, R16t r)) __asm__("clicked_inside_r_frame");
-FN(float, draw_text, (WT3 *w, R16t r, int align, int col, void *text));
+FN(float, draw_text, (WT3 *w, const R16t *r, int align, int col, void *text));
 FN(void, confirmation_popup_formatted_message, (void *gui, void *object, void *other_object, const char *fmt, ...));
 FN(void, request_unload, (GuiState *gui));
 extern "C" const float row_height_42, gui_panel_grey_level, corner_radius_20_in_gui_state, divisor_7, gui_selection_inset, gui_tab_highlight_grey_level, corner_radius_14,
@@ -129,14 +146,18 @@ extern "C" void draw_tab_bar(GuiState *gui, WT3 *window, float dt) {
         else tc = hov ? nvg_rgba_f(colour_level_1_in_gui_state, colour_level_1_in_gui_state, colour_level_1_in_gui_state, 1.0f)
                       : nvg_rgba_f(colour_level_0_866667, colour_level_0_866667, colour_level_0_866667, 1.0f);
         nvg_FillColor(window->ig, &tc);
-        draw_text(window, in, 1, 0, (void *)tab->label);
+        draw_text(window, &in, 1, 0, (void *)tab->label);
     }
 }
 
 // ---- click GUI frame: window rect + open animation, scroll, tab bar, category page (module cards or the
 // profile list), toast, modal popup ----
 struct GWin { void *ig; double t; void *padding_10; float w, h, scale; };
-struct R2f { float x, y; };
+struct R2f { float x, y;
+#ifdef __linux__
+    ~R2f() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Prof { const char *name, *end; char desc[0x28]; int key; int padding_3c; };
 struct GEv { int type, padding_04; union { void *p; int i; } a, b; char rest[0x30]; };
 typedef void (*SetBindF)(void *mod, int key);
@@ -150,20 +171,20 @@ FN(void, nvg_Scale, (void *nvg, float x, float y));
 FN(R2f, rot_scale, (R2f a, float s));
 FN(void, card_open_animation, (GWin *window, float t));
 FN(void, reset_layout_columns, (GuiState *gui));
-FN(void, push_layout_row, (GuiState *gui, R16t r, float sp, float pad));
+FN(void, push_layout_row, (GuiState *gui, R16t *r, float sp, float pad));
 FN(void, pop_layout_row, (GuiState *gui, int n));
 FN(void, draw_module_cards, (GuiState *gui, GWin *window, void *mgr, unsigned cat, float dt));
 FN(int, load_profiles, (void *profiles));
 FN(void, dispatch_event, (void *mgr, GEv *e));
 FN(void, choose_columns, (GuiState *gui, float w));
 FN(Prof *, profile_array, (void *profiles, unsigned long long *n));
-FN(bool, rects_intersect, (R16t a, R16t b));
-FN(void, begin_content, (GWin *window, GuiState *gui, R16t r, float pad, float f));
-FN(float, draw_text_sized, (GWin *window, R16t r, unsigned align, unsigned col, const char *text, const char *end));
+FN(bool, rects_intersect, (const R16t *a, const R16t *b));
+FN(void, begin_content, (GWin *window, GuiState *gui, R16t *r, float pad, float f));
+FN(float, draw_text_sized, (GWin *window, R16t *r, unsigned align, unsigned col, const char *text, const char *end));
 FN(SetBindF, profile_set_bind, (void *profiles));
-FN(void, draw_module_description, (GuiState *gui, GWin *window, SetBindF cb, void *target, int key, unsigned char *hold, R16t r));
+FN(void, draw_module_description, (GuiState *gui, GWin *window, SetBindF cb, void *target, int key, unsigned char *hold, const R16t *r));
 FN(void, ask_sure_before_running_action, (GuiState *gui, void *mgr, void *profiles, const char *name, int kind));
-FN(void, draw_texture, (GWin *window, R16t r, unsigned icon, float alpha));
+FN(void, draw_texture, (GWin *window, R16t *r, unsigned icon, float alpha));
 FN(void, set_slider_text, (GuiState *gui, GWin *window, const char *tip, int x, int y));
 FN(bool, get_profile_dirty, ());
 FN(const char *, get_saved_string, ());
@@ -172,14 +193,14 @@ FN(int, load_profile_name, (const char *name, void *mgr));       // load profile
 FN(int, save_profile, (const char *name, bool text, void *mgr));   // save profile
 FN(V4t, nvg_trans_rgba_f, (V4t c, float k));
 FN(void, file_name_text_filter, (char *buf, char character));
-FN(bool, drag_item, (GuiState *gui, GWin *window, R16t r, void (*filter)(char *, char), void *b));
+FN(bool, drag_item, (GuiState *gui, GWin *window, R16t *r, void (*filter)(char *, char), void *b));
 FN(void, draw_tracked_text, (GuiState *gui, GWin *window, const R16t *r));
 FN(float, end_layout_row, (GWin *window, GuiState *gui));
 FN(float, ease_curve, (float t));
 FN(float, nvg_text_bounds, (void *nvg, float x, float y, const char *text, const char *end, const float *bounds));   // nvgTextBounds
 FN(void, close_popup_animated, (GuiState *gui, GWin *window));
-FN(bool, mouse_over_rect_r_local, (GuiState *gui, R16t r)) __asm__("mouse_over_rect_r");
-FN(void, draw_rect_rounded_local, (WT3 *w, R16t r, float round)) __asm__("draw_rect_rounded");
+FN(bool, mouse_over_rect_r_local, (GuiState *gui, const R16t *r)) __asm__("mouse_over_rect_r");
+FN(void, draw_rect_rounded_local, (WT3 *w, const R16t *r, float round)) __asm__("draw_rect_rounded");
 extern "C" const float offset_neg_16, gui_wide_layout_max_width, gui_narrow_layout_max_width, half_in_gui_state, one_in_gui_state_a, row_padding_8,
     row_padding_12, gui_profiles_column_width, colour_level_0_0784314_in_gui_state, row_height_20_in_gui_state_a, font_size_16_in_gui_state, colour_level_0_866667_in_gui_state, rect_extent_5, font_size_14_in_gui_state,
     colour_level_0_6, font_size_15, gui_tab_font_size, offset_10, gui_tab_bar_vertical_offset, colour_level_0_25098_in_gui_state, threshold_600, offset_neg_600;
@@ -222,7 +243,7 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
     double dtd = dt;
     float op = (float)((double)gui->card_open_progress + dtd / divisor_0_3);
     gui->card_open_progress = one < op ? one : op;
-    push_layout_row(gui, win, row_padding_8, row_padding_12);
+    push_layout_row(gui, &win, row_padding_8, row_padding_12);
     pop_layout_row(gui, 1);
     draw_tab_bar(gui, (WT3 *)window, dt);
     unsigned long long cat = gui->selected_tab;
@@ -257,12 +278,13 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
         Prof *list = profile_array(profiles, &n);
         for (unsigned long long i = 0; i <= n; i++) {
             R16t row = add_cell(gui, gui->row_height);
-            if (!rects_intersect(make_rect(0.0f, gui->scroll, window->w, window->h), row)) continue;
+            R16t view = make_rect(0.0f, gui->scroll, window->w, window->h);
+            if (!rects_intersect(&view, &row)) continue;
             Prof *ent = i ? &list[i - 1] : 0;
             V4t bg = nvg_rgba_f(colour_level_0_0784314_in_gui_state, colour_level_0_0784314_in_gui_state, colour_level_0_0784314_in_gui_state, 1.0f);
             nvg_FillColor(pig, &bg);
-            draw_rect_rounded_local((WT3 *)window, row, row_height_20_in_gui_state_a);
-            begin_content(window, gui, row, row_padding_8, 12.0f);
+            draw_rect_rounded_local((WT3 *)window, &row, row_height_20_in_gui_state_a);
+            begin_content(window, gui, &row, row_padding_8, 12.0f);
             pop_layout_row(gui, 1);
             void *tig = window->ig;
             R16t t = add_cell(gui, row_height_20_in_gui_state_a);
@@ -270,11 +292,11 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
             V4t tc = nvg_rgba_f(colour_level_0_866667_in_gui_state, colour_level_0_866667_in_gui_state, colour_level_0_866667_in_gui_state, 1.0f);
             nvg_FillColor(tig, &tc);
             if (ent) {
-                float tw = draw_text_sized(window, t, 0, 0, ent->name, ent->end);
+                float tw = draw_text_sized(window, &t, 0, 0, ent->name, ent->end);
                 R16t br = make_rect(tw + rect_extent_5, t.y, t.w - tw + t.x, t.h);
-                draw_module_description(gui, window, profile_set_bind(profiles), ent, ent->key, 0, br);
+                draw_module_description(gui, window, profile_set_bind(profiles), ent, ent->key, 0, &br);
             } else {
-                draw_text_sized(window, t, 0, 0, str_default /* "Default" */, 0);
+                draw_text_sized(window, &t, 0, 0, str_default /* "Default" */, 0);
             }
             for (unsigned j = 0; j != 4; j++) {   // load, save, open folder, delete
                 R16t b = make_rect(t.x + t.w - (float)(int)(20 * (4 - j)) - (float)(int)(12 * (3 - j)), t.y,
@@ -282,7 +304,7 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
                 float alpha = half_in_gui_state;
                 if (ent || !j) {
                     alpha = one;
-                    if (mouse_over_rect_r_local(gui, b)) {
+                    if (mouse_over_rect_r_local(gui, &b)) {
                         set_slider_text(gui, window, (const char *)gui_state_tooltip_strings_as_offsets_from + gui_state_tooltip_strings_as_offsets_from[j],
                                  (int)((double)b.x + (double)b.w * factor_0_5_in_gui_state), (int)b.y);
                         if (clicked_inside_r_frame_local(gui, b)) {
@@ -341,14 +363,14 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
                     }
                 }
             icon:
-                draw_texture(window, b, gui_state_button_icons[j], alpha);
+                draw_texture(window, &b, gui_state_button_icons[j], alpha);
             }
             if (!gui->card_layout_mode) {   // description line
                 R16t d = add_cell(gui, row_height_20_in_gui_state_a);
                 nvg_FontSize(tig, font_size_14_in_gui_state);
                 V4t dc = nvg_rgba_f(colour_level_0_6, colour_level_0_6, colour_level_0_6, 1.0f);
                 nvg_FillColor(tig, &dc);
-                draw_text((WT3 *)window, d, 0, 0, ent ? (void *)ent->desc : (void *)str_contains_the_default_configura);
+                draw_text((WT3 *)window, &d, 0, 0, ent ? (void *)ent->desc : (void *)str_contains_the_default_configura);
             }
             gui->row_height = end_layout_row(window, gui);
         }
@@ -358,8 +380,8 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
         V4t c0 = nvg_rgba_f(colour_level_0_0784314_in_gui_state, colour_level_0_0784314_in_gui_state, colour_level_0_0784314_in_gui_state, 1.0f);
         V4t c1 = nvg_trans_rgba_f(c0, half_in_gui_state);
         nvg_FillColor(cig, &c1);
-        draw_rect_rounded_local((WT3 *)window, cr, row_height_20_in_gui_state_a);
-        if (drag_item(gui, window, cr, file_name_text_filter, 0)) {
+        draw_rect_rounded_local((WT3 *)window, &cr, row_height_20_in_gui_state_a);
+        if (drag_item(gui, window, &cr, file_name_text_filter, 0)) {
             nvg_FontSize(cig, font_size_16_in_gui_state);
             V4t wc = nvg_rgba_f(one, one, one, 1.0f);
             nvg_FillColor(cig, &wc);
@@ -382,10 +404,10 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
             }
         } else {
             nvg_FontSize(cig, font_size_15);
-            float k = mouse_over_rect_r_local(gui, cr) ? one : colour_level_0_866667_in_gui_state;
+            float k = mouse_over_rect_r_local(gui, &cr) ? one : colour_level_0_866667_in_gui_state;
             V4t tc2 = nvg_rgba_f(k, k, k, 1.0f);
             nvg_FillColor(cig, &tc2);
-            draw_text((WT3 *)window, cr, 1, 1, (void *)str_create_new_profile);   // "CREATE NEW PROFILE"
+            draw_text((WT3 *)window, &cr, 1, 1, (void *)str_create_new_profile);   // "CREATE NEW PROFILE"
         }
         break;
     }
@@ -408,10 +430,10 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
         R16t tr = make_rect((float)((double)tw * factor_neg_0_5 + offset_neg_5), gui_tab_bar_vertical_offset, tw + offset_10, 20.0f);
         V4t bc = nvg_rgba_f(colour_level_0_25098_in_gui_state, colour_level_0_25098_in_gui_state, colour_level_0_25098_in_gui_state, 1.0f);
         nvg_FillColor(tig, &bc);
-        draw_rect_rounded_local((WT3 *)window, tr, rect_extent_5);
+        draw_rect_rounded_local((WT3 *)window, &tr, rect_extent_5);
         V4t fc = nvg_rgba_f(colour_level_0_866667_in_gui_state, colour_level_0_866667_in_gui_state, colour_level_0_866667_in_gui_state, 1.0f);
         nvg_FillColor(tig, &fc);
-        draw_text((WT3 *)window, tr, 1, 0, gui->toast_text);
+        draw_text((WT3 *)window, &tr, 1, 0, gui->toast_text);
         nvg_Restore(tig);
         gui->toast_visible = 0;
     } else {
@@ -430,7 +452,7 @@ extern "C" void draw_gui_frame(GuiState *gui, GWin *window, void *mgr, void *pro
             pr.x = (float)((double)(pr.w + offset_neg_600) * factor_0_5_in_gui_state + (double)pr.x);
             pr.w = threshold_600;
         }
-        push_layout_row(gui, pr, row_padding_8, row_padding_12);
+        push_layout_row(gui, &pr, row_padding_8, row_padding_12);
         close_popup_animated(gui, window);
         end_layout_row(window, gui);
         nvg_Restore(nvg);

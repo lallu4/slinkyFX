@@ -41,11 +41,18 @@ static inline __attribute__((always_inline)) float neg(float x) {
     v4f v = {x, 0, 0, 0};
     return ((v4f)((v4i)v ^ indicators_sign_mask))[0];
 }
-struct Pair { float x, y; };
-struct Vec3 { double x, y, z; };
+struct Pair { float x, y;
+#ifdef __linux__
+    ~Pair() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct TickEvt { char padding_00[8]; Ctx *ctx; };
 struct RenderEvt { char padding_00[8]; double cam_x; char padding_10[8]; double cam_z; Ctx *ctx; void *screen; char padding_30[0x10]; float partial; unsigned char shader; };
-
 extern "C" Indicator indicators_secondary_refs[10];
 extern "C" char indicators_label_buffer[10];                       // label buffer
 extern "C" unsigned char indicators_show_kind_10_12_14, indicators_show_kind_10_12_14_second, indicators_show_kind_10_12_14_third;   // show kind 10 / 12 / 14
@@ -85,7 +92,7 @@ FN(void, gl_array_xy_float2, ());
 FN(void, gl_array_color5, ());
 FN(void, gl_array_color6, ());
 FN(void, disable_vertex_array_state, ());
-FN(Pair, rot_scale, (void *screen, float f));
+FN(Pair, rot_scale, (Pair screen, float f));
 FN(double, time_now, ());
 FN(double, libc_sin, (double x));
 FN(float, lerp_unclamped_float, (float a, float b, float t));
@@ -172,7 +179,9 @@ extern "C" void indicators_render(RenderEvt *h) {
     void *font = java_get_render_manager_text_renderer(ctx->jvm, minecraft);
     float yaw = java_get_render_manager_player_view_y(ctx->jvm, minecraft);
     gl_array_xy_float2();
-    Pair mid = rot_scale(h->screen, scale_0_5_in_indicators);
+    Pair scr;
+    __builtin_memcpy(&scr, &h->screen, sizeof scr);   // the slot holds the two floats packed, not a pointer
+    Pair mid = rot_scale(scr, scale_0_5_in_indicators);
     (*ptr_to_pGlPushMatrix)();
     (*ptr_to_pGlTranslatef)(mid.x, mid.y, 0.0f);
     (*ptr_to_pGlLineWidth)(gl_colour_component_1_in_indicators);

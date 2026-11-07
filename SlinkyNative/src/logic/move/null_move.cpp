@@ -4,7 +4,6 @@
 #include "slinky/engine.h"
 
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char null_move_module_descriptor[];
 extern "C" int null_move_key_state_0;
 extern "C" int null_move_key_state_1;

@@ -15,7 +15,11 @@ extern "C" int compare_int_ids(const int *left, const int *right) {
 
 FN(void, libc_memmove, (void *dst, const void *src, unsigned long long n));
 FN(void, libc_free, (void *ptr));
-struct V3 { unsigned long long size, cap; void *data; };
+struct V3 { unsigned long long size, cap; void *data;
+#ifdef __linux__
+    ~V3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Lists { char padding_00[8]; V3 a, b, c; };
 struct LVec { unsigned long long size, cap; Lists *data; };
 extern "C" LVec block_esp_mesh_count_capacity;

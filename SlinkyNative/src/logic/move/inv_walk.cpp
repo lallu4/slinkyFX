@@ -8,7 +8,6 @@
 
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 struct GuiHook { char padding_00[8]; void *a; void *screen_obj; void *screen; unsigned char handled; };
-
 extern "C" char inv_walk_module_descriptor[];           // Inv Walk module descriptor
 extern "C" unsigned inv_walk_mode;         // "mode"
 extern "C" void *inv_walk_queued_clicks[0x20];      // queued clicks
@@ -43,7 +42,7 @@ FN(void *, java_get_container_player_craft_matrix, (void *jvm, void *container_p
 FN(void *, java_call_iinventory_get_stack_in_slot, (void *jvm, void *inv, int slot));
 FN(void *, java_new_c_init, (void *jvm, int x));
 FN(void, java_call_entity_set_sprinting, (void *jvm, void *entity, bool on));
-FN(unsigned char, release_global_refs, (void *jvm));
+FN(unsigned char, release_global_refs, (void *jvm, void *minecraft));
 FN(void *, java_jni_is_instance_of_c16_packet_client_status, (void *jvm, void *screen));
 FN(int, java_get_c16_packet_client_status_status, (void *jvm, void *c16_packet_client_status));
 FN(void *, java_jni_is_instance_of_c0_epacket_click_window, (void *jvm, void *screen));
@@ -73,7 +72,7 @@ extern "C" void inv_walk_on_toggle(EvHook *hook) {
     inv_walk_keys_released_last_tick = 0;
     inv_walk_phase = 0;
     inv_walk_replaying_queued_clicks = 0;
-    release_global_refs(ctx->jvm);
+    release_global_refs(ctx->jvm, ctx->minecraft);
 }
 
 extern "C" void inv_walk_on_gui_screen(GuiHook *hook) {
@@ -138,7 +137,7 @@ extern "C" void inv_walk_on_inventory_tick(Hook *hook) {
     Ctx *ctx = hook->ctx;
     if (__builtin_expect(inv_walk_replaying_queued_clicks, 0))
         goto end;
-    if (!release_global_refs(ctx->jvm))
+    if (!release_global_refs(ctx->jvm, ctx->minecraft))
         goto end;
     inv_walk_tick_last_screen_activity = inv_walk_tick_counter;
     if (ctx->in_game != 1)

@@ -2,13 +2,20 @@
 // them on our own motion, explosions or a transaction mismatch.
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Target { void *padding_00; void *ent; double dist2; };
 struct RenderHook { char padding_00[8]; Vec3 cam; char padding_20[8]; float partial; };
 struct PktHook { char padding_00[8]; void *ctx; void *ev; long long budget; int seq; int verdict; };
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char backtrack_module_descriptor[];           // Backtrack module descriptor
 extern "C" int backtrack_last_released_sequence;              // last released sequence
 extern "C" int backtrack_last_held_sequence;              // last held sequence

@@ -2,7 +2,11 @@
 // mined, optionally switching back afterwards) and +0x1e8 (free the block filter).
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };  // +0x10 / +0x18
 
 extern "C" int auto_tool_slot_switch_back;              // slot to switch back to (-1 = none)

@@ -1,7 +1,15 @@
 // 0xa000: Rot / Rect / float helpers, random numbers
 #include "slinky/engine.h"
-struct Rot { float yaw, pitch; };
-struct Rect { float x, y, w, h; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rect { float x, y, w, h;
+#ifdef __linux__
+    ~Rect() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(float, libc_roundf, (float x));
 FN(float, libc_fmodf, (float x, float y));
 FN(double, time_now, ());

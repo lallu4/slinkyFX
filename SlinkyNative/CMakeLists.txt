@@ -156,4 +156,7 @@ foreach(f ${ENGINE_SRC} ${LOGIC_SRC} ${MODULE_SRC})
 endforeach()
 
 # Reached from the DLL's own entry point; no C runtime start-up code is linked (the UCRT in the process is used)
-target_link_options(slinky PRIVATE /NODEFAULTLIB /ENTRY:DllMain /SUBSYSTEM:WINDOWS /OPT:NOREF /OPT:NOICF /ERRORLIMIT:0 /MAP)
+# /DEBUG:NONE because CMake's Release defaults ask for a program database, and the DLL then carries the full
+# path of the folder that built it - in a file that goes to players. Nothing here can debug against a PDB that
+# is not in the archive anyway.
+target_link_options(slinky PRIVATE /NODEFAULTLIB /ENTRY:DllMain /SUBSYSTEM:WINDOWS /OPT:NOREF /OPT:NOICF /ERRORLIMIT:0 /MAP /DEBUG:NONE)

@@ -12,7 +12,6 @@ extern "C" float one_in_healthbar_draw, healthbar_green_level;
 FN(float, lerp_unclamped_float, (float a, float b, float t));   // lerp
 
 struct Bar { char padding_00[0x44]; float fill_fraction, overlay_fraction; };
-
 extern "C" void draw_health_bar(Bar *b, float x, float y0, float y1) {
     float m = lerp_unclamped_float(y1, y0, b->fill_fraction);
     GlColor3f *color = ptr_to_pGlColor3f;

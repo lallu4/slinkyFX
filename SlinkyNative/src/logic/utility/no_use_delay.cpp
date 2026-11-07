@@ -8,7 +8,6 @@ extern "C" int no_use_delay_last_seen_slot_state;            // last seen slot/s
 
 struct DelayState { char padding_00[8]; Ctx *ctx; };
 struct ToggleHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 FN(void *, get_game_settings, (void *jvm, void *object));
 FN(void *, java_get_game_settings_use_item_key, (void *jvm, void *game_settings));
 FN(unsigned char, is_key_down, (void *jvm, void *object));

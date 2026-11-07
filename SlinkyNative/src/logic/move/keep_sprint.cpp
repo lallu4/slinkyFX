@@ -5,10 +5,13 @@
 // +0x158: afterwards re-assert sprint on the player.
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct PhaseHook { char padding_00[8]; Ctx *ctx; unsigned char phase; };   // +0x10: phase flag
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char keep_sprint_module_descriptor[];
 extern "C" float keep_sprint_chance_value;           // "chance"
 extern "C" float keep_sprint_motion_mult;           // "motion_mult"

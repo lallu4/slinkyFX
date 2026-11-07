@@ -7,9 +7,21 @@
 
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
 
-struct Vec3 { double x, y, z; };
-struct Color3 { float r, g, b; };
-struct Pair { float x, y; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Color3 { float r, g, b;
+#ifdef __linux__
+    ~Color3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Pair { float x, y;
+#ifdef __linux__
+    ~Pair() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Player {                     // 0x50 bytes at 0x2f7e20
     Vec3 prev, pos;
     Color3 color;

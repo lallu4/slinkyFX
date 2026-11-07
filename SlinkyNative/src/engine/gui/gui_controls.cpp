@@ -16,7 +16,11 @@ extern "C" void set_slider_text(char *o, void *, const char *src, int a, int b) 
 }
 
 // ---- slider: drag along the track or type a value (after a double click), rounded to step, clamped ----
-struct R16g { float x, y, w, h; };
+struct R16g { float x, y, w, h;
+#ifdef __linux__
+    ~R16g() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(unsigned char, clicked_inside_r_frame, (GuiState *gui, R16g r));
 FN(void, start_dragging_item_b, (GuiState *gui, void *item, void *other_object));
 FN(bool, dragged_item_is, (GuiState *gui, void *item));
@@ -73,24 +77,28 @@ extern "C" unsigned char draw_slider_track(GuiState *gui, const R16g *track, con
 }
 
 // ---- range slider: two knobs (each grabs on its side of the midpoint), they push each other ----
-struct V4g { float x, y, z, w; };
+struct V4g { float x, y, z, w;
+#ifdef __linux__
+    ~V4g() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct GW14 { void *ig; double t; };
 struct RAnim { unsigned char low_knob_active, high_knob_active; char padding_02[2]; float p0, p1; int padding_0c; double last; };
 FN(R16g, add_cell, (GuiState *gui, float h));
 FN(V4g, nvg_rgba_f, (float r, float g, float b, float a));
 FN(void, nvg_FillColor, (void *nvg, V4g *c));
 FN(void, nvg_FontSize, (void *nvg, float size));
-FN(float, draw_text, (GW14 *window, R16g r, int align, int col, const char *text));
+FN(float, draw_text, (GW14 *window, const R16g *r, int align, int col, const char *text));   // rect spelled as gui_layout.cpp defines it: MS hands big structs by address, SysV passes them in XMM
 FN(R16g, make_rect, (float x, float y, float w, float h));
-FN(bool, mouse_over_rect_r, (GuiState *gui, R16g r));
-FN(void, draw_rect_rounded, (GW14 *window, R16g r, float round));
+FN(bool, mouse_over_rect_r, (GuiState *gui, const R16g *r));
+FN(void, draw_rect_rounded, (GW14 *window, const R16g *r, float round));
 FN(float, limit_rotation_delta, (float lo, float hi, float x));
 FN(float, lerp_clamped_float, (float a, float b, float t));
 FN(float, lerp_unclamped_float, (float a, float b, float t));
 FN(void, nvg_BeginPath, (void *nvg));
 FN(void, nvg_Circle, (void *nvg, float x, float y, float rad));
 FN(void, nvg_Fill, (void *nvg));
-FN(unsigned char, draw_slider_track_local, (GuiState *gui, R16g track, R16g hit, float lo, float hi, float step, float scale,
+FN(unsigned char, draw_slider_track_local, (GuiState *gui, const R16g *track, const R16g *hit, float lo, float hi, float step, float scale,
                            unsigned char *active, float *val)) __asm__("draw_slider_track");
 FN(int, libc_snprintf, (char *buf, unsigned long long n, const char *fmt, ...));
 extern "C" const float row_height_20_in_gui_controls, colour_level_0_866667_in_gui_controls, font_size_15_in_gui_controls, offset_10_in_gui_controls, offset_neg_2_in_gui_controls_b, gui_control_idle_grey_level,
@@ -112,17 +120,17 @@ extern "C" bool draw_range_slider_row(GuiState *gui, GW14 *window, const char *l
     V4g tc = nvg_rgba_f(colour_level_0_866667_in_gui_controls, colour_level_0_866667_in_gui_controls, colour_level_0_866667_in_gui_controls, 1.0f);
     nvg_FillColor(nvg, &tc);
     nvg_FontSize(nvg, font_size_15_in_gui_controls);
-    draw_text(window, r, 0, 0, label);
+    draw_text(window, &r, 0, 0, label);
     float y = r.y + offset_10_in_gui_controls + offset_neg_2_in_gui_controls_b;
     double half = (double)r.w * factor_0_5_in_gui_controls;
     float x0 = (float)((double)r.x + half);
     float tw = (float)(half + offset_neg_2_in_gui_controls);
     R16g track = make_rect(x0, y, tw, 4.0f);
-    float k = mouse_over_rect_r(gui, r) ? gui_control_hover_grey_level : gui_control_idle_grey_level;
+    float k = mouse_over_rect_r(gui, &r) ? gui_control_hover_grey_level : gui_control_idle_grey_level;
     V4g kc = nvg_rgba_f(k, k, k, 1.0f);
     nvg_FillColor(nvg, &kc);
     float rnd = two_in_gui_controls;
-    draw_rect_rounded(window, track, rnd);
+    draw_rect_rounded(window, &track, rnd);
     float range = hi - lo;
     float t0 = limit_rotation_delta(0.0f, clamp_bound_1_in_gui_controls, (*vlo - lo) / range);
     float t1 = limit_rotation_delta(0.0f, clamp_bound_1_in_gui_controls, (*vhi - lo) / range);
@@ -136,7 +144,7 @@ extern "C" bool draw_range_slider_row(GuiState *gui, GW14 *window, const char *l
     R16g fill = make_rect(a, y, b - a, 4.0f);
     V4g acc = *(V4g *)&gui->accent_color;
     nvg_FillColor(nvg, &acc);
-    draw_rect_rounded(window, fill, rnd);
+    draw_rect_rounded(window, &fill, rnd);
     float ky = rnd + y, rad = gui_range_slider_knob_radius;
     nvg_BeginPath(nvg);
     nvg_Circle(nvg, a, ky, rad);
@@ -152,18 +160,18 @@ extern "C" bool draw_range_slider_row(GuiState *gui, GW14 *window, const char *l
     const char *text;
     int tx;
     bool changed;
-    if (draw_slider_track_local(gui, track, hl, lo, hi, step, scale, &an->low_knob_active, vlo)) {
+    if (draw_slider_track_local(gui, &track, &hl, lo, hi, step, scale, &an->low_knob_active, vlo)) {
         if (*vlo > *vhi) *vhi = *vlo;
         text = val_text(gui, vlo, fmt, scale);
         tx = (int)a;
         changed = true;
-    } else if (draw_slider_track_local(gui, track, hh, lo, hi, step, scale, &an->high_knob_active, vhi)) {
+    } else if (draw_slider_track_local(gui, &track, &hh, lo, hi, step, scale, &an->high_knob_active, vhi)) {
         if (*vlo > *vhi) *vlo = *vhi;
         text = val_text(gui, vhi, fmt, scale);
         tx = (int)b;
         changed = true;
     } else {
-        if (!mouse_over_rect_r(gui, r)) return false;
+        if (!mouse_over_rect_r(gui, &r)) return false;
         if (gui->click_capture == 1 && !an->low_knob_active && an->high_knob_active != 1) return false;
         float l = *vlo, h = *vhi;
         float ls = scale == 0.0f ? l : scale * l;
@@ -188,7 +196,7 @@ extern "C" bool draw_range_slider_row(GuiState *gui, GW14 *window, const char *l
 struct DDrop { char padding_00[8]; double last; float h; unsigned char open; };
 FN(void, nvg_StrokeColor, (void *nvg, V4g *c));
 FN(void, nvg_StrokeWidth, (void *nvg, float w));
-FN(void, draw_rect_stroked, (GW14 *window, R16g r, float round));
+FN(void, draw_rect_stroked, (GW14 *window, const R16g *r, float round));
 FN(V4g, nvg_trans_rgba_f, (V4g c, float k));
 FN(void, nvg_MoveTo, (void *nvg, float x, float y));
 FN(void, nvg_LineTo, (void *nvg, float x, float y));
@@ -215,12 +223,12 @@ extern "C" unsigned char draw_dropdown_row(GuiState *gui, GW14 *window, const ch
     V4g tc = grey14(colour_level_0_866667_in_gui_controls_a);
     nvg_FillColor(nvg, &tc);
     nvg_FontSize(nvg, font_size_15_in_gui_controls_a);
-    draw_text(window, lr, 0, 0, label);
+    draw_text(window, &lr, 0, 0, label);
     R16g box = make_rect((float)((double)r.w * factor_0_5_in_gui_controls_a + (double)r.x), r.y, r.w * colour_alpha_0_5_in_gui_controls, r.h);
     V4g oc = grey14(colour_level_0_25098_in_gui_controls_a);
     nvg_StrokeColor(nvg, &oc);
     nvg_StrokeWidth(nvg, stroke_width_2_in_gui_controls_a);
-    draw_rect_stroked(window, box, corner_radius_10_in_gui_controls_a);
+    draw_rect_stroked(window, &box, corner_radius_10_in_gui_controls_a);
     if (dd->open) {
         float rh = box.h;
         V4g sc = nvg_trans_rgba_f(grey14(colour_level_0_25098_in_gui_controls_a), colour_alpha_0_5_in_gui_controls);
@@ -232,14 +240,14 @@ extern "C" unsigned char draw_dropdown_row(GuiState *gui, GW14 *window, const ch
         for (unsigned long long i = 0; i != n; i++) {
             R16g row = make_rect(box.x, (float)(unsigned)i * rh + box.y, box.w, rh);
             const char *name = items[i];
-            bool hov = mouse_over_rect_r(gui, row);
+            bool hov = mouse_over_rect_r(gui, &row);
             unsigned s = (unsigned)*sel;
             V4g c;
             if (i == s) c = *(V4g *)&gui->accent_color;
             else if (hov) c = grey14(i == 0 || notopt ? colour_level_1_in_gui_controls_a : colour_level_0_733333_in_gui_controls);
             else c = grey14(i != 0 || notopt ? colour_level_0_866667_in_gui_controls_a : colour_level_0_6_in_gui_controls);
             nvg_FillColor(nvg, &c);
-            draw_text(window, row, 1, 0, name);
+            draw_text(window, &row, 1, 0, name);
             if (!(done & 1)) {
                 if (clicked_inside_r_frame(gui, row)) {
                     *sel = (int)i;
@@ -261,13 +269,13 @@ extern "C" unsigned char draw_dropdown_row(GuiState *gui, GW14 *window, const ch
         return done;
     }
     bool small = n < 6;
-    bool hov = mouse_over_rect_r(gui, box);
+    bool hov = mouse_over_rect_r(gui, &box);
     int s = *sel;
     if (opt && !small) {
         if (s) {
             float y = box.y, xh = box.h, x = box.w - xh + box.x;
             R16g xr = {x, y, xh, xh};
-            bool xhov = mouse_over_rect_r(gui, xr);
+            bool xhov = mouse_over_rect_r(gui, &xr);
             V4g xc = xhov ? nvg_rgba_f(colour_level_0_933333_in_gui_controls, colour_level_0_345098_in_gui_controls, colour_level_0_345098_in_gui_controls, 1.0f) : grey14(colour_level_0_25098_in_gui_controls_a);
             nvg_StrokeColor(nvg, &xc);
             float in = (float)((double)xh * factor_0_3_in_gui_controls);
@@ -295,7 +303,7 @@ extern "C" unsigned char draw_dropdown_row(GuiState *gui, GW14 *window, const ch
     else c = grey14(hov ? colour_level_1_in_gui_controls_a : colour_level_0_866667_in_gui_controls_a);
     nvg_FillColor(nvg, &c);
     if ((unsigned)s >= n) s = 0;
-    draw_text(window, box, 1, 0, items[(unsigned)s]);
+    draw_text(window, &box, 1, 0, items[(unsigned)s]);
     if (clicked_inside_r_frame(gui, box)) {
         if (n >= 6) open_list_popup(gui, str_select_item, sel, (void *)text_filter_alnum, (void *)select_index, items + 1, n - 1);
         else dd->open = 1;

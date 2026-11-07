@@ -6,8 +6,16 @@
 #include "slinky/jids.h"
 
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
-struct Vec3 { double x, y, z; };
-struct Color3 { float r, g, b; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Color3 { float r, g, b;
+#ifdef __linux__
+    ~Color3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Listed { int id; int padding_04; Color3 color; int padding_14; };   // 0x18 bytes, sorted by id
 struct Drop {                       // 0x58 bytes at 0x302140
     Vec3 prev, pos;
@@ -20,7 +28,6 @@ struct Drop {                       // 0x58 bytes at 0x302140
 };
 struct TickEvt { char padding_00[8]; Ctx *ctx; };
 struct RenderEvt { char padding_00[8]; Vec3 cam; Ctx *ctx; float partial; unsigned char shader; };
-
 extern "C" unsigned long long item_esp_ref_count;   // count
 extern "C" Drop item_esp_refs[100];
 extern "C" char item_esp_label_buffer[5];              // label buffer

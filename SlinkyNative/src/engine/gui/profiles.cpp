@@ -136,7 +136,11 @@ extern "C" void visit_float_setting(Visit *visitor, const char *name, FloatSet *
     }
     }
 }
-struct Range { float min, max; };
+struct Range { float min, max;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct RangeSet { char padding_00[0x38]; float lo, hi; Range cur, saved; };
 static inline __attribute__((always_inline)) float clampf(float x, float lo, float hi) {
     float r = lo;
@@ -248,7 +252,11 @@ extern "C" void visit_choice_setting(Visit *visitor, const char *name, ChoiceSet
         else if (mode == 3) s->value = s->saved;
     }
 }
-struct Color { float r, g, b; };
+struct Color { float r, g, b;
+#ifdef __linux__
+    ~Color() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" const float threshold_1_in_profiles;   // 1.0
 extern "C" const char str_r_in_profiles[], str_g_in_profiles[], str_b_in_profiles[];
 static inline __attribute__((always_inline)) bool unit(float x) {
@@ -293,8 +301,7 @@ extern "C" void visit_color_setting(Visit *visitor, const char *name, ColorSet *
 }
 
 // ---- per-module json: "__on", "__bind", "__hold" and the module's own settings visitor ----
-struct MCfg { const char *name; char padding_08[0xc]; unsigned char enabled; char padding_15[3]; unsigned flags; unsigned bind;
-              unsigned char hold; char padding_21[0x1df]; void (*visit)(Visit *); };
+struct MCfg { const char *name; char padding_08[0xc]; unsigned char enabled; char padding_15[3]; unsigned flags; unsigned bind; unsigned char hold; char padding_21[0x1df]; void (*visit)(Visit *); };
 FN(void, queue_module_toggle, (Mods *module_manager, MCfg *module, unsigned char enabled));
 FN(void, apply_module_state, (Mods *mods, MCfg *m, int key));
 extern "C" const char mc_obf_name_on[], str_bind_in_profiles[], str_hold[];
@@ -377,15 +384,7 @@ FN(int, cjson_is_array, (const cJSON *object));                           // cJS
 extern "C" const char str_name[], str_color[];      // "name", "color"
 extern "C" const double default_colour_rg_one_as_double;                       // {1.0f, 1.0f}
 struct JNode2 { JNode2 *next, *prev, *child; int type; const char *vs; };
-struct ListSet {
-    char padding_00[0x18]; int kind; int padding_1c; void *ctx;
-    unsigned long long (*count)(void *ctx);
-    const char *(*name)(void *ctx, unsigned long long i);
-    const float *(*color)(void *ctx, unsigned long long i);
-    void (*add)(void *ctx, const char *name, Color *c);
-    void (*remove)(void *ctx, unsigned long long i);
-    void (*clear)(void *ctx);
-};
+struct ListSet { char padding_00[0x18]; int kind; int padding_1c; void *ctx; unsigned long long (*count)(void *ctx); const char *(*name)(void *ctx, unsigned long long i); const float *(*color)(void *ctx, unsigned long long i); void (*add)(void *ctx, const char *name, Color *c); void (*remove)(void *ctx, unsigned long long i); void (*clear)(void *ctx); };
 extern "C" void visit_list_setting(Visit *visitor, const char *name, ListSet *s) {
     if (visitor->failed) return;
     int mode = visitor->mode;

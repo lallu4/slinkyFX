@@ -5,7 +5,6 @@ extern "C" unsigned no_hit_delay_mode;  // "mode" current value
 
 struct World { int *state; };
 struct HitState { char padding_00[8]; Ctx *ctx; unsigned char on; };
-
 FN(int, java_get_minecraft_left_click_counter, (void *jvm, void *minecraft));
 FN(void *, java_get_minecraft_object_mouse_over, (void *jvm, void *minecraft));
 FN(int, java_get_moving_object_position_type_ordinal, (void *jvm, void *moving_object_position));

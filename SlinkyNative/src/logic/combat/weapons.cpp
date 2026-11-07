@@ -7,7 +7,6 @@
 
 struct SlotSetting { char padding_00[0x18]; unsigned char on; char padding_19[7]; };
 struct IdCache { void *p, *q; };
-
 extern "C" unsigned char weapons_fist_value;    // "fist"
 extern "C" SlotSetting weapons_bool_slot_1[];    // per-slot "allow" toggles
 extern "C" unsigned char weapons_enchant_sharpness_value;    // "enchant_sharpness"

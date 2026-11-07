@@ -4,13 +4,11 @@
 #include "slinky/jids.h"
 #include "slinky/platform.h"
 
-struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target;
-              unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
+struct HCtx { Jvm *jvm; void *module_manager; void *profile_list; void *minecraft; void *world; void *player; void *key_state_table; void *target; unsigned char in_game; unsigned char padding_41[3]; int padding_44; };
 // event 8 ("reach"): handlers may set `use` and change reach / expand; reach_distance_check reads ctx..expand as ReachA
 struct ReachEvent { long long type; HCtx *ctx; unsigned char use; char padding_11[7]; double reach, expand; char rest[0x20]; };
 struct PlainEvent { long long type; HCtx *ctx; char rest[0x38]; };
 struct Pair16 { long long a, b; };
-
 extern "C" JIds *java_natives_world_cached_jni_ids;
 extern "C" char java_natives_world_module_manager[], java_natives_frame_module_manager_target_state[];   // module manager, target state
 extern "C" void *init_profile_list, *java_natives_world_key_state_table_one_byte;

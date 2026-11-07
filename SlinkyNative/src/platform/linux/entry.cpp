@@ -91,8 +91,11 @@ static DWORD engine_thread(void *self) {
         // successful disarm the image stays resident, inert (every native checks the shutdown flag).
         int hoff = slinky_disarm();
         if (hoff) {
+            // Deliberately no slinky_engine_exited here. That flag is the bootstrap's permission to dlclose, and
+            // dlclose unmaps the code the game is still calling: the hooks are in, so the classes patched by the
+            // half-finished start-up still jump into this image on every frame. Staying mapped and resident is
+            // the only safe reading of "the hooks stayed armed", and the reaper waits for a flag that never comes.
             slinky_logf("startup failed and the hooks stayed armed (%d): staying resident", hoff);
-            slinky_engine_exited = 1;
             return 0;
         }
         free_and_exit(self);

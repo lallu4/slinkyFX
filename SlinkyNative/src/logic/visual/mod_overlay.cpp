@@ -31,7 +31,11 @@ struct Entry {                      // 0x50 bytes at 0x2fb000
 struct ToggleEvt { char padding_00[8]; Ctx *ctx; Module *mod; unsigned char on; };
 struct Ui { void *dl; char padding_08[0x10]; float width; };
 struct RenderEvt { char padding_00[0x10]; Ui *ui; float dt; };
-struct Color { float r, g, b, a; };
+struct Color { float r, g, b, a;
+#ifdef __linux__
+    ~Color() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Measure { char padding_00[8]; float w, h; };
 
 struct FlagHook { char padding_00[0x10]; unsigned flags; };

@@ -10,11 +10,14 @@
 
 typedef float v4f __attribute__((vector_size(16), aligned(16)));
 typedef int v4i __attribute__((vector_size(16), aligned(16)));
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct AttackHook { char padding_00[8]; Ctx *ctx; unsigned char phase; unsigned char handled; };   // +0x10 / +0x11
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
 struct PktHook { char padding_00[0x24]; int verdict; };
-
 extern "C" char knockback_displace_module_descriptor[];     // Knockback Displace module descriptor
 
 extern "C" float knockback_displace_cooldown_value;            // "cooldown"
@@ -53,8 +56,8 @@ FN(unsigned char, yaw_diff_check, (Ctx *ctx, Rot rotation, void *target));
 FN(unsigned char, update_rotation_priority_peak, (int ms));
 FN(void, apply_player_rotation, (Ctx *ctx, unsigned char a, int b, int d, Rot rotation));
 FN(unsigned char, random_chance, (float chance));
-FN(void *, rot_make_floats, (float lo, float hi));
-FN(float, random_rotation, (void *rng));
+FN(Rot, rot_make_floats, (float lo, float hi));
+FN(float, random_rotation, (Rot rng));
 FN(void, apply_silent_rotation, (Rot rotation));
 FN(void, set_rotation_active, (void *jvm, void *object, int x));
 FN(float, java_get_entity_living_base_move_strafing, (void *jvm, void *entity_living_base));

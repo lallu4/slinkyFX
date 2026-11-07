@@ -6,14 +6,24 @@
 #include "slinky/jids.h"
 extern "C" void slinky_logf(const char *fmt, ...);
 
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
-struct Box { Vec3 lo, hi; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Box { Vec3 lo, hi;
+#ifdef __linux__
+    ~Box() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Point { float x, y, z; };
 struct RenderEvt { char padding_00[8]; Vec3 cam; Ctx *ctx; float partial; };
-
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char trajectories_module_descriptor[];           // Trajectories module descriptor
 extern "C" void *trajectories_entities[1];
 extern "C" void *trajectories_boxes[1];

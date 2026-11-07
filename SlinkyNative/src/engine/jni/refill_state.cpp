@@ -2,7 +2,11 @@
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
 
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(void *, java_get_entity_player_inventory, (void *jvm, void *entity_player));
 FN(int, java_get_inventory_player_current_item, (void *jvm, void *inv));
 FN(void *, java_get_inventory_player_main_inventory, (void *jvm, void *inv));

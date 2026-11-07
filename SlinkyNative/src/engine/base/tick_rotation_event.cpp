@@ -1,6 +1,10 @@
 // 0x6000: per-frame tick: rotation-delta tracking and the timed "tick" event (type 1)
 #include "slinky/engine.h"
-struct Rot { float yaw, pitch; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 extern "C" double tick_rotation_last_time;
 extern "C" Rot tick_rotation_previous;
 extern "C" const double threshold_0_002;
@@ -21,7 +25,9 @@ extern "C" void tick_modules(Ctx *ctx, void *object, double now) {
         return;
     }
     Rot d = rot_sub(get_entity_rotation(ctx->jvm, ctx->player), tick_rotation_previous);
-    if (__builtin_bit_cast(unsigned long long, d) & 0x7fffffff7fffffffull) add_rotation_delta(d);
+    unsigned long long d_bits;
+    __builtin_memcpy(&d_bits, &d, sizeof d_bits);   // bit_cast needs a trivial type, and Rot is not one on Linux
+    if (d_bits & 0x7fffffff7fffffffull) add_rotation_delta(d);
     double dt = now - tick_rotation_last_time;
     if (threshold_0_002 > dt) return;
     float partial_ticks = get_partial_ticks(ctx->jvm, object);

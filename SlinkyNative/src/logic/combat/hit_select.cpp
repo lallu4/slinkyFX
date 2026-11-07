@@ -5,9 +5,12 @@
 //   +0x158 tick:   track the target's hurt time / server-side hit timing
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct AttackHook { char padding_00[8]; Ctx *ctx; unsigned char phase; unsigned char cancel; };
-
 extern "C" float hit_select_cancel_rate_air_value;            // "cancel_rate_air"
 extern "C" float hit_select_pause_dur_value;            // "pause_dur"
 extern "C" float hit_select_wait_for_damage_dur_value;            // "wait_for_damage_dur"

@@ -2,8 +2,16 @@
 // cflags: /Ob1 /clang:-fno-slp-vectorize
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
-struct Rot { float yaw, pitch; };
-struct Vec3 { double x, y, z; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(Vec3, vec3_make, (double x, double y, double z));
 
 extern "C" jint java_get_game_settings_third_person_view(Jvm *jvm, void *game_settings) {
@@ -207,8 +215,12 @@ extern "C" jobject java_get_game_settings_attack_key(Jvm *jvm, jobject game_sett
 }
 
 // ---- hand-written
-struct Box { Vec3 lo, hi; };
-FN(Box, aabb_make, (const Vec3 *lo, const Vec3 *hi));
+struct Box { Vec3 lo, hi;
+#ifdef __linux__
+    ~Box() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+FN(Box, aabb_make, (Vec3 lo, Vec3 hi));   // spelled as vec_aabb.cpp defines it: a by-value Vec3 stays by-value on SysV, the pointer spelling would land in XMM
 FN(bool, java_call_static_keyboard_is_key_down, (Jvm *j, int key));     // Keyboard.isKeyDown
 FN(bool, java_call_static_mouse_is_button_down, (Jvm *j, int button));  // Mouse.isButtonDown
 
@@ -247,7 +259,7 @@ extern "C" Box java_get_axis_aligned_bb_min_x(Jvm *jvm, jobject axis_aligned_bb)
     y = JCALLN(jvm, GetDoubleField, axis_aligned_bb, (jfieldID)ids->AxisAlignedBB_maxY);
     z = JCALLN(jvm, GetDoubleField, axis_aligned_bb, (jfieldID)ids->AxisAlignedBB_maxZ);
     Vec3 hi = vec3_make(x, y, z);
-    Box r = aabb_make(&lo, &hi);
+    Box r = aabb_make(lo, hi);
 
     return r;
 }

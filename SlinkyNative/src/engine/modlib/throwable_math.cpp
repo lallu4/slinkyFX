@@ -1,7 +1,15 @@
 // 0x45000: throwable start position and velocity (vanilla EntityThrowable maths)
 #include "slinky/engine.h"
-struct Vec3 { double x, y, z; };
-struct Rot { float yaw, pitch; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(float, libc_sinf, (float x));   // sinf
 FN(float, libc_cosf, (float x));   // cosf
 FN(float, lerp_unclamped_float, (float a, float b, float t));

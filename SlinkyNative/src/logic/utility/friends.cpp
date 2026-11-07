@@ -6,11 +6,14 @@
 #include "slinky/engine.h"
 #include "slinky/jids.h"
 
-struct Key { unsigned long long hi, lo, seen, padding_18; };          // 0x20 bytes
+struct Key { unsigned long long hi, lo, seen, padding_18;
+#ifdef __linux__
+    ~Key() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};          // 0x20 bytes
 struct Entry { char padding_00[0x10]; long long seen; };
 struct Notice { int kind; int padding_04; unsigned char added; char rest[0x3f]; };   // 0x48 bytes
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" unsigned char friends_middle_click_add_value;   // "middle_click_add"
 extern "C" char friends_module_descriptor[];          // Friends module descriptor
 extern "C" void *friend_set_friend_table;           // friend table

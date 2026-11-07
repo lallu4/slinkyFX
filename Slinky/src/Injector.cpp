@@ -10,14 +10,23 @@
 namespace Slinky {
 
 bool Injector::ExtractBundledDll(std::wstring& outDllPath, std::wstring& outLogPath) {
-    wchar_t tempPath[MAX_PATH] = { 0 };
-    if (!GetTempPathW(MAX_PATH, tempPath)) {
+    // MAX_PATH, not a MAX_PATH buffer: a player's TEMP under a OneDrive or a long profile name overflows the
+    // 260-char form of the old API, and the overflow used to be fatal twice over - GetTempPathW answers 0 when
+    // the path does not fit, and swprintf_s fast-fails the process instead of returning an error, so the loader
+    // died on the way to telling anybody anything. NT paths take 32K; the two buffers are that wide and every
+    // result is checked.
+    wchar_t tempPath[4096] = { 0 };
+    if (!GetTempPathW((DWORD)(sizeof(tempPath) / sizeof(tempPath[0])), tempPath)) {
         ConsoleUI::PrintError("Finding temp folder", GetLastError());
         return false;
     }
 
-    wchar_t slinkyTempDir[MAX_PATH] = { 0 };
-    swprintf_s(slinkyTempDir, L"%lsslinky-%lu", tempPath, GetCurrentProcessId());
+    wchar_t slinkyTempDir[4096] = { 0 };
+    if (swprintf_s(slinkyTempDir, (sizeof(slinkyTempDir) / sizeof(slinkyTempDir[0])),
+                   L"%lsslinky-%lu", tempPath, GetCurrentProcessId()) < 0) {
+        ConsoleUI::PrintFailure("Your Windows temp folder path is too long for slinky to use.");
+        return false;
+    }
 
     if (!CreateDirectoryW(slinkyTempDir, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
         ConsoleUI::PrintError("Creating temp folder", GetLastError());
@@ -39,9 +48,16 @@ bool Injector::ExtractBundledDll(std::wstring& outDllPath, std::wstring& outLogP
                 HANDLE hFile = CreateFileW(outDllPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
                 if (hFile != INVALID_HANDLE_VALUE) {
                     DWORD written = 0;
-                    WriteFile(hFile, pData, resSize, &written, nullptr);
+                    // A short or failed write used to be treated as success, and the game then tried to load a
+                    // truncated DLL - which Windows reports as a broken image, not as the disk-full or
+                    // antivirus-blocked reason it really was. Anything but the whole resource goes back to the
+                    // folder next to the loader instead.
+                    if (WriteFile(hFile, pData, resSize, &written, nullptr) && written == resSize) {
+                        CloseHandle(hFile);
+                        return true;
+                    }
                     CloseHandle(hFile);
-                    return true;
+                    DeleteFileW(outDllPath.c_str());
                 }
             }
         }
@@ -65,7 +81,7 @@ bool Injector::ExtractBundledDll(std::wstring& outDllPath, std::wstring& outLogP
         }
     }
 
-    ConsoleUI::PrintError("Reading bundled DLL", ERROR_FILE_NOT_FOUND);
+    ConsoleUI::PrintFailure("slinky-native.dll is not next to slinky-loader.exe. Unzip both files into the same folder.");
     return false;
 }
 
@@ -99,6 +115,15 @@ bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
         }
     }
 
+    // A 32-bit JVM is not a target this loader can reach: the LoadLibraryW address handed to
+    // CreateRemoteThread is the one from our own 64-bit kernel32, and inside a 32-bit process that number is
+    // not a function. The thread would run into nothing and the player would wait 30 seconds for a timeout, so
+    // say what is wrong - the fix is on the launcher side, and it is a 64-bit Java 8.
+    if (ProcessUtil::IsThirtyTwoBit(pid)) {
+        ConsoleUI::PrintFailure("That game runs on 32-bit Java. Slinky needs a 64-bit Java - install one and pick it in the launcher.");
+        return false;
+    }
+
     std::wstring injectPath = dllPath;
     if (ProcessUtil::IsModuleMappedAt(pid, dllPath)) {
         // A leftover image still holds this exact path, and LoadLibrary would hand that one back without
@@ -113,7 +138,14 @@ bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
         FALSE, pid);
 
     if (!hProcess) {
-        ConsoleUI::PrintError("OpenProcess", GetLastError());
+        DWORD reason = GetLastError();
+        if (reason == ERROR_ACCESS_DENIED) {
+            // The game was started as administrator and this loader was not: Windows refuses the open, and
+            // without saying so the player sees a Windows error number where the answer is one extra right-click.
+            ConsoleUI::PrintFailure("The game cannot be opened. If it runs as administrator, start slinky-loader.exe as administrator too.");
+        } else {
+            ConsoleUI::PrintError("OpenProcess", reason);
+        }
         return false;
     }
 
@@ -155,7 +187,11 @@ bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
     if (waitRes != WAIT_OBJECT_0) {
         ConsoleUI::PrintFailure("Game did not finish loading the DLL.");
         CloseHandle(hThread);
-        VirtualFreeEx(hProcess, pRemotePath, 0, MEM_RELEASE);
+        // The remote thread is not dead - it is inside LoadLibraryW, reading the path we wrote for it, and a
+        // game that takes thirty seconds there is stuck on a loader lock somebody else holds. Freeing that
+        // memory here would pull the string out from under a call that is still reading it, so the block stays
+        // allocated and goes when the game does. One 400-byte leak in a process that failed to load us is the
+        // cheaper of the two mistakes.
         CloseHandle(hProcess);
         return false;
     }
@@ -183,9 +219,27 @@ bool Injector::InjectDll(DWORD pid, const std::wstring& dllPath) {
 
 namespace {
 
+// The console is written in UTF-8 (ConsoleUI asks the codepage for it), so anything that comes out of a wide
+// string or goes into a wide one has to cross here.
+std::string ToUtf8(const std::wstring& w) {
+    if (w.empty()) return std::string();
+    int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    if (n <= 0) return std::string();
+    std::string s((size_t)n, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+// The same three facts the Linux loader gives a player whose run did not finish: where the log is, what the
+// client said there, and - when it said nothing at all - that the silence is itself the answer.
 void PrintLogTail(const std::wstring& logPath) {
     FILE* fp = nullptr;
-    if (_wfopen_s(&fp, logPath.c_str(), L"r, ccs=UTF-8") != 0 || !fp) return;
+    if (_wfopen_s(&fp, logPath.c_str(), L"r, ccs=UTF-8") != 0 || !fp) {
+        std::string where = ToUtf8(logPath);
+        fprintf(stderr, "\nNothing was written to %s - the client never got as far as keeping a log.\n",
+                where.c_str());
+        return;
+    }
 
     std::vector<std::wstring> lines;
     wchar_t line[1024];
@@ -199,19 +253,44 @@ void PrintLogTail(const std::wstring& logPath) {
     }
     fclose(fp);
 
-    if (!lines.empty()) {
-        fprintf(stderr, "\n--- slinky-native.log tail ---\n");
-        for (const std::wstring& l : lines) {
-            // Best-effort narrow output for the console
-            int n = WideCharToMultiByte(CP_UTF8, 0, l.c_str(), -1, nullptr, 0, nullptr, nullptr);
-            if (n > 0) {
-                std::vector<char> buf(n);
-                WideCharToMultiByte(CP_UTF8, 0, l.c_str(), -1, buf.data(), n, nullptr, nullptr);
-                fprintf(stderr, "%s\n", buf.data());
-            }
-        }
-        fprintf(stderr, "--- end log tail ---\n");
+    std::string where = ToUtf8(logPath);
+    if (lines.empty()) {
+        fprintf(stderr, "\nThe log at %s is empty.\n", where.c_str());
+        return;
     }
+    fprintf(stderr, "\n--- last lines of %s ---\n", where.c_str());
+    for (const std::wstring& l : lines) {
+        // Best-effort narrow output for the console
+        int n = WideCharToMultiByte(CP_UTF8, 0, l.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (n > 0) {
+            std::vector<char> buf(n);
+            WideCharToMultiByte(CP_UTF8, 0, l.c_str(), -1, buf.data(), n, nullptr, nullptr);
+            fprintf(stderr, "%s\n", buf.data());
+        }
+    }
+    fprintf(stderr, "--- end of log ---\n");
+}
+
+// A run that is working and a run that has stopped look identical while the loader waits: one status line for
+// two and a half minutes. The client's log grows as it works, so the newest line it wrote becomes the status.
+// Sixty units is a deliberate ceiling - the status is the last row of the block the animation redraws, and a
+// status that wraps would leave the redraw counting rows that are no longer there.
+void ShowClientProgress(const std::wstring& line, std::string& shown) {
+    size_t a = line.find_first_not_of(L" \t\r\n");
+    if (a == std::wstring::npos) return;
+    std::wstring text = line.substr(a, line.find_last_not_of(L" \t\r\n") - a + 1);
+    if (text.front() == L'[') {
+        size_t close = text.find(L']');
+        if (close != std::wstring::npos && close + 2 < text.size()) text = text.substr(close + 2);
+    }
+    if (text.size() > 60) {
+        text.resize(60);
+        if (text.back() >= 0xD800 && text.back() <= 0xDBFF) text.pop_back();   // half a surrogate pair
+    }
+    std::string u8 = ToUtf8(text);
+    if (u8.empty() || u8 == shown) return;
+    shown = u8;
+    ConsoleUI::SetStatusText(shown.c_str());
 }
 
 } // namespace
@@ -219,12 +298,14 @@ void PrintLogTail(const std::wstring& logPath) {
 bool Injector::MonitorStartup(DWORD pid, const std::wstring& logPath) {
     HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, pid);
 
-    // The status line stays on "Injecting into Minecraft..." while the client boots.
+    // The status line stays on "Injecting into Minecraft..." until the client starts writing, and then follows
+    // its log - see ShowClientProgress.
     DWORD startTime = GetTickCount();
     // Bootstrap.start can wait up to 2 minutes for the client thread to run the scheduled
     // init task (Bootstrap.java); the monitor must outlive that window plus margin.
     const DWORD timeoutMs = 150000;
 
+    std::string shown;
     while (GetTickCount() - startTime < timeoutMs) {
         if (hProcess && WaitForSingleObject(hProcess, 0) == WAIT_OBJECT_0) {
             ConsoleUI::PrintFailure("Game process closed before startup finished.");
@@ -236,6 +317,7 @@ bool Injector::MonitorStartup(DWORD pid, const std::wstring& logPath) {
         FILE* fp = nullptr;
         if (_wfopen_s(&fp, logPath.c_str(), L"r, ccs=UTF-8") == 0 && fp) {
             wchar_t line[1024];
+            std::wstring newest;
             while (fgetws(line, 1024, fp)) {
                 if (wcsstr(line, L"FINAL STATUS: RUNNING")) {
                     fclose(fp);
@@ -254,10 +336,13 @@ bool Injector::MonitorStartup(DWORD pid, const std::wstring& logPath) {
                     ConsoleUI::PrintFailure("Minecraft could not start the client.");
                     fclose(fp);
                     if (hProcess) CloseHandle(hProcess);
+                    PrintLogTail(logPath);
                     return false;
                 }
+                newest = line;
             }
             fclose(fp);
+            ShowClientProgress(newest, shown);
         }
 
         Sleep(150);

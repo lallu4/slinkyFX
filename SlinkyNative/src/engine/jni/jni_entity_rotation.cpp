@@ -2,8 +2,16 @@
 // cflags: /Ob1 /clang:-fno-slp-vectorize
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
-struct Rot { float yaw, pitch; };
-struct Vec3 { double x, y, z; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(Vec3, vec3_make, (double x, double y, double z));
 FN(Rot, rot_make, (float yaw, float pitch));
 FN(float, limit_rotation_delta, (float lo, float hi, float v));

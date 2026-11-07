@@ -5,8 +5,16 @@
 #include "slinky/engine.h"
 #include "slinky/jids.h"
 
-struct Vec3 { double x, y, z; };
-struct Pair { float x, y; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Pair { float x, y;
+#ifdef __linux__
+    ~Pair() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct Slot { unsigned char has; char padding_01[3]; int count; void **refs; };   // armour piece + enchant labels
 struct Tag {                        // 0xa0 bytes at 0x2fc920
     Vec3 prev, pos;
@@ -20,9 +28,7 @@ struct Tag {                        // 0xa0 bytes at 0x2fc920
 struct Builder { alignas(8) char raw[0x20]; };
 struct Enchant { unsigned short id, lvl; };
 struct RenderEvt { char padding_00[8]; Vec3 cam; Ctx *ctx; char padding_28[0x18]; float partial; unsigned char shader; };
-
 struct EvHook { char padding_00[8]; Ctx *ctx; void *ev; unsigned char on; };
-
 extern "C" char name_tags_module_descriptor[];           // Name Tags module descriptor
 extern "C" void *name_tags_cached_ref;
 

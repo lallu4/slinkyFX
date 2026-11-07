@@ -1,13 +1,20 @@
 // Lag Range - attack only while the target's hurt time is inside the configured range.
 #include "slinky/engine.h"
 
-struct Vec3 { double x, y, z; };
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct RenderHook { char padding_00[8]; Vec3 cam; char padding_20[8]; float partial; };   // +0x08 / +0x28
 struct Target { void *padding_00; void *ent; double dist2; };
 struct PktHook { char padding_00[8]; void *ctx; void *ev; long long budget; int seq; int verdict; };
-struct Range { float lo, hi; };
+struct Range { float lo, hi;
+#ifdef __linux__
+    ~Range() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 struct PhaseHook { char padding_00[8]; Ctx *ctx; unsigned char phase; };
-
 extern "C" unsigned char lag_range_hit_time_unchanged;
 extern "C" float lag_range_line_width_setting;            // "line_width"
 extern "C" float lag_range_color_setting[3];         // "color"

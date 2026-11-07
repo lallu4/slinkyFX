@@ -2,8 +2,16 @@
 // cflags: /Ob1 /clang:-fno-slp-vectorize
 #include "slinky/engine.h"
 #include "slinky/jcall.h"
-struct Rot { float yaw, pitch; };
-struct Vec3 { double x, y, z; };
+struct Rot { float yaw, pitch;
+#ifdef __linux__
+    ~Rot() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
+struct Vec3 { double x, y, z;
+#ifdef __linux__
+    ~Vec3() {}   // a struct with a destructor goes by address on SysV, which is how MS already passes it
+#endif
+};
 FN(Vec3, vec3_make, (double x, double y, double z));
 extern "C" jobject java_get_network_player_info_display_name(Jvm *jvm, void *network_player_info) {
     return JCALL(jvm, GetObjectField, network_player_info, ids->NetworkPlayerInfo_displayName);
